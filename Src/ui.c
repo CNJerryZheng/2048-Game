@@ -103,13 +103,51 @@ void ui_show_game(const char *current_user)
     puts("游戏模块尚未接入，下一步将在这里绘制棋盘。");
 }
 
-void ui_show_ranking(void)
+void ui_show_ranking(const RankEntry *entries, int count, const char *current_user, int user_rank, int user_best)
 {
+    int display_count;
+
     ui_clear_screen();
     puts("================================");
     puts("             排行榜              ");
     puts("================================");
-    puts("排行榜模块尚未接入。");
+
+    if (count == 0)
+    {
+        puts("");
+        puts("           暂无排行数据           ");
+        return;
+    }
+
+    display_count = (count < RANK_TOP_COUNT) ? count : RANK_TOP_COUNT;
+
+    printf("\n%-6s %-20s %s\n", "排名", "用户名", "分数");
+    puts("--------------------------------");
+
+    for (int i = 0; i < display_count; i = -~i)
+        printf("%-6d %-20s %d\n", i + 1, entries[i].username, entries[i].score);
+
+    puts("--------------------------------");
+
+    if (current_user == NULL || current_user[0] == '\0')
+    {
+        puts("登录后可查看您的个人排名。");
+        return;
+    }
+
+    if (user_rank < 0)
+    {
+        puts("您暂无游戏记录或者分数太低，快去开始游戏吧！");
+    }
+    else if (user_rank < RANK_TOP_COUNT)
+    {
+        printf("恭喜您所处排行榜第%d名！\n", user_rank + 1);
+    }
+    else
+    {
+        int tenth_score = entries[RANK_TOP_COUNT - 1].score;
+        printf("您的最佳分数为%d分，距离排行榜第十名还有%d分差距！\n", user_best, tenth_score - user_best);
+    }
 }
 
 void ui_clear_screen(void)

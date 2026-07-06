@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rank.h"
+
 void ui_initialize_console(void); // 初始化控制台，设置编码为UTF-8，隐藏光标
 
 void ui_show_welcome(void); // 显示欢迎界面
@@ -14,7 +16,7 @@ void ui_show_login_page(void); // 显示登录界面
 
 void ui_show_game(const char *current_user); // 显示游戏界面，current_user为当前登录的用户名，如果未登录则为NULL或空字符串
 
-void ui_show_ranking(void); // 显示排行榜界面
+void ui_show_ranking(const RankEntry *entries, int count, const char *current_user, int user_rank, int user_best); // 显示排行榜界面
 
 void ui_clear_screen(void); // 清屏
 

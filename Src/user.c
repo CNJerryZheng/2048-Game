@@ -1,5 +1,6 @@
 #include "user.h"
 #include "config.h"
+#include "rank.h"
 #include "storage.h"
 #include "ui.h"
 #include "utils.h"
@@ -307,7 +308,7 @@ void run_game_system(void)
         }
         else if (choice == '3')
         {
-            ui_show_ranking();
+            rank_show(SCORES_DATA_FILE, current_user);
             ui_wait_for_enter();
         }
         else if (choice == '0')
