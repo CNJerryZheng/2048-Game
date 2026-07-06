@@ -2,70 +2,37 @@
 #include <string.h>
 #include <stdbool.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 #include "user.h"
 #include "config.h"
+#include "ui.h"
+#include "utils.h"
 
-static bool read_choice(char *buffer)
+static void run_game_system(void)
 {
-    int character;
-    printf("请选择：");
-    if (scanf("%15s", buffer) != 1)
-        return false;
-    while ((character = getchar()) != '\n' && character != EOF)
-    {
-    }
-    return true;
-}
-
-int main(void)
-{
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
-#endif
-
-    char choice[16];
+    char choice;
     char current_user[USER_NAME_LENGTH_MAX] = "";
+
+    ui_show_welcome();
+    ui_wait_for_enter();
 
     while (true)
     {
-        puts("\n================================");
-        puts("          2048 游戏系统          ");
-        puts("================================");
+        ui_show_main_menu(current_user);
 
-        if (current_user[0] != '\0')
-        {
-            printf("当前登录用户：%s\n", current_user);
-        }
-        else
-        {
-            puts("当前状态：未登录");
-        }
-
-        puts("--------------------------------");
-        puts("1. 用户中心（登录 / 注册）");
-        puts("2. 开始游戏");
-        puts("0. 退出程序");
-        puts("================================");
-
-        if (!read_choice(choice))
+        if (!utils_read_choice(&choice))
         {
             puts("输入错误，请重新输入!");
-            system("pause");
+            ui_wait_for_enter();
             continue;
         }
 
-        if (strcmp(choice, "1") == 0)
+        if (choice == '1')
         {
             user_show_interface(USER_DATA_FILE,
                                 current_user,
                                 sizeof(current_user));
         }
-        else if (strcmp(choice, "2") == 0)
+        else if (choice == '2')
         {
             if (current_user[0] == '\0')
             {
@@ -73,10 +40,16 @@ int main(void)
             }
             else
             {
-                puts("游戏模块尚未接入，下一步将在这里启动 2048");
+                ui_show_game(current_user);
             }
+            ui_wait_for_enter();
         }
-        else if (strcmp(choice, "0") == 0)
+        else if (choice == '3')
+        {
+            ui_show_ranking();
+            ui_wait_for_enter();
+        }
+        else if (choice == '0')
         {
             puts("感谢您的游玩，再见！");
             break;
@@ -84,10 +57,17 @@ int main(void)
         else
         {
             puts("无效选项，请重新输入。 ");
+            ui_wait_for_enter();
             continue;
         }
     }
 
-    system("pause");
+    ui_wait_for_enter();
+}
+
+int main(void)
+{
+    run_game_system();
+
     return 0;
 }
