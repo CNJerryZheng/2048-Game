@@ -3,3 +3,4 @@
 /.codex-temp/
 *.user
 *.suo
+/Data/user.txt

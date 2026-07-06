@@ -1,16 +1,16 @@
 {
-    "C_Cpp.default.compilerPath": "C:\\Program Files (x86)\\Dev-Cpp\\MinGW64\\bin\\gcc.exe",
-    "C_Cpp.default.cStandard": "c11",
+    "C_Cpp.default.compilerPath": "${env:MINGW_HOME}/bin/gcc.exe",
+    "C_Cpp.default.cStandard": "c99",
     "C_Cpp.default.includePath": [
         "${workspaceFolder}/Inc"
     ],
-    "cmake.cmakePath": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+    "cmake.cmakePath": "${env:CMAKE_HOME}/bin/cmake.exe",
     "cmake.generator": "Ninja",
     "cmake.additionalCompilerSearchDirs": [
-        "C:\\Program Files (x86)\\Dev-Cpp\\MinGW64\\bin"
+        "${env:MINGW_HOME}/bin"
     ],
     "cmake.configureSettings": {
-        "CMAKE_C_COMPILER": "C:/Program Files (x86)/Dev-Cpp/MinGW64/bin/gcc.exe",
-        "CMAKE_MAKE_PROGRAM": "D:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+        "CMAKE_C_COMPILER": "${env:MINGW_HOME}/bin/gcc.exe",
+        "CMAKE_MAKE_PROGRAM": "${env:NINJA_HOME}/ninja.exe"
     }
 }

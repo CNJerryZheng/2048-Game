@@ -4,7 +4,7 @@
         {
             "label": "CMake: Configure (Ninja + MinGW)",
             "type": "process",
-            "command": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+            "command": "${env:CMAKE_HOME}\\bin\\cmake.exe",
             "args": [
                 "-S",
                 "${workspaceFolder}",
@@ -12,8 +12,8 @@
                 "${workspaceFolder}/build",
                 "-G",
                 "Ninja",
-                "-DCMAKE_MAKE_PROGRAM=D:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe",
-                "-DCMAKE_C_COMPILER=C:/Program Files (x86)/Dev-Cpp/MinGW64/bin/gcc.exe",
+                "-DCMAKE_MAKE_PROGRAM=${env:NINJA_HOME}/ninja.exe",
+                "-DCMAKE_C_COMPILER=${env:MINGW_HOME}/bin/gcc.exe",
                 "-DCMAKE_BUILD_TYPE=Debug"
             ],
             "options": {
@@ -24,7 +24,7 @@
         {
             "label": "CMake: Build EXE",
             "type": "process",
-            "command": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+            "command": "${env:CMAKE_HOME}\\bin\\cmake.exe",
             "args": [
                 "--build",
                 "${workspaceFolder}/build",
@@ -42,7 +42,7 @@
             "type": "process",
             "command": "${workspaceFolder}\\build\\bin\\2048_game.exe",
             "options": {
-                "cwd": "${workspaceFolder}\\build\\bin"
+                "cwd": "${workspaceFolder}"
             },
             "dependsOn": "CMake: Build EXE",
             "problemMatcher": [],
@@ -60,7 +60,7 @@
         {
             "label": "CMake: Clean",
             "type": "process",
-            "command": "D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+            "command": "${env:CMAKE_HOME}\\bin\\cmake.exe",
             "args": [
                 "--build",
                 "${workspaceFolder}/build",
