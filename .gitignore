@@ -1,0 +1,5 @@
+/build/
+/cmake-build-*/
+/.codex-temp/
+*.user
+*.suo
