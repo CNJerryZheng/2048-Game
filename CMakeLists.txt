@@ -17,6 +17,7 @@ add_executable(2048_game
     Src/board.c
     Src/game.c
     Src/rank.c
+    Src/save.c
     Src/storage.c
     Src/ui.c
     Src/user.c

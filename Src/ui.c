@@ -1,4 +1,6 @@
 #include "ui.h"
+#include "config.h"
+#include "utils.h"
 
 #include <stdio.h>
 
@@ -101,6 +103,101 @@ void ui_show_game(const char *current_user)
     puts("================================");
     printf("玩家：%s\n", current_user);
     puts("游戏模块尚未接入，下一步将在这里绘制棋盘。");
+}
+
+static const char *ui_tile_color(int value)
+{
+    switch (value)
+    {
+    case 0: return "\033[90;100m";
+    case 2: return "\033[30;107m";
+    case 4: return "\033[30;47m";
+    case 8: return "\033[97;43m";
+    case 16: return "\033[97;101m";
+    case 32: return "\033[97;41m";
+    case 64: return "\033[97;45m";
+    case 128: return "\033[30;103m";
+    case 256: return "\033[30;93m";
+    case 512: return "\033[97;33m";
+    case 1024: return "\033[97;35m";
+    default: return "\033[97;44m";
+    }
+}
+
+static void ui_show_board(const Board *board)
+{
+    int row;
+    int col;
+
+    for (row = 0; row < BOARD_ROWS; row = -~row)
+    {
+        puts("+-------+-------+-------+-------+");
+        for (col = 0; col < BOARD_COLS; col = -~col)
+        {
+            if (board->grid[row][col] == 0)
+                printf("| %s%*s\033[0m ", ui_tile_color(0), BOARD_CELL_WIDTH, "");
+            else
+                printf("| %s%*d\033[0m ",
+                       ui_tile_color(board->grid[row][col]),
+                       BOARD_CELL_WIDTH,
+                       board->grid[row][col]);
+        }
+        puts("|");
+    }
+    puts("+-------+-------+-------+-------+");
+}
+
+void ui_show_game_state(const Board *board, const char *current_user)
+{
+    ui_clear_screen();
+    puts("================================");
+    puts("            2048 游戏           ");
+    puts("================================");
+    printf("玩家：%s    分数：%d    步数：%d\n",
+           current_user,
+           board->score,
+           board->step);
+    ui_show_board(board);
+    puts("方向键/WASD：移动  P：保存  Q：返回主菜单");
+}
+
+bool ui_ask_continue_save(int saved_score)
+{
+    char choice;
+
+    while (true)
+    {
+        ui_clear_screen();
+        puts("检测到该用户的游戏存档。");
+        printf("存档分数：%d\n", saved_score);
+        puts("1. 继续游戏");
+        puts("2. 重新开始");
+
+        if (utils_read_choice(&choice) && (choice == '1' || choice == '2'))
+            return choice == '1';
+    }
+}
+
+void ui_show_quit_save_result(bool success)
+{
+    puts(success ? "游戏进度已自动保存。" : "游戏进度自动保存失败。");
+}
+
+void ui_show_game_message(const char *message)
+{
+    if (message != NULL)
+        printf("提示：%s\n", message);
+}
+
+void ui_show_game_over(const Board *board,
+                       BoardStatus status,
+                       bool rank_saved)
+{
+    ui_clear_screen();
+    puts(status == BOARD_STATUS_WIN ? "恭喜你合成了 2048！" : "没有可移动方块，游戏结束。");
+    printf("最终分数：%d，移动步数：%d\n", board->score, board->step);
+    ui_show_board(board);
+    puts(rank_saved ? "成绩已更新到排行榜。" : "排行榜保存失败。");
 }
 
 void ui_show_ranking(const RankEntry *entries, int count, const char *current_user, int user_rank, int user_best)

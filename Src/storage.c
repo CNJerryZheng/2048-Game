@@ -1,4 +1,5 @@
 #include "storage.h"
+#include "config.h"
 #include "utils.h"
 
 #ifdef _WIN32
@@ -62,6 +63,83 @@ bool storage_write_score(FILE *file, const char *username, int score)
         return false;
 
     return fprintf(file, "%s\t%s\n", username, encrypted_score) >= 0;
+}
+
+bool storage_write_save(FILE *file, const char *username, const Board *board)
+{
+    int row;
+    int col;
+
+    if (file == NULL || username == NULL || username[0] == '\0' || board == NULL ||
+        board->score < 0 || board->step < 0)
+        return false;
+
+    if (fprintf(file, "%s\t%d\t%d\t%d\t%d",
+                username,
+                board->score,
+                board->step,
+                board->game_start ? 1 : 0,
+                board->game_over ? 1 : 0) < 0)
+        return false;
+
+    for (row = 0; row < BOARD_ROWS; row = -~row)
+    {
+        for (col = 0; col < BOARD_COLS; col = -~col)
+        {
+            if (fprintf(file, "\t%d", board->grid[row][col]) < 0)
+                return false;
+        }
+    }
+
+    return fputc('\n', file) != EOF;
+}
+
+bool storage_parse_save_line(const char *line,
+                             char *username,
+                             size_t username_size,
+                             Board *board)
+{
+    char parsed_username[USER_NAME_LENGTH_MAX];
+    int values[4 + BOARD_ROWS * BOARD_COLS];
+    int matched;
+    int index;
+
+    if (line == NULL || username == NULL || username_size == 0 || board == NULL)
+        return false;
+
+    matched = sscanf(line,
+                     "%31[^\t]\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
+                     parsed_username,
+                     &values[0], &values[1], &values[2], &values[3],
+                     &values[4], &values[5], &values[6], &values[7],
+                     &values[8], &values[9], &values[10], &values[11],
+                     &values[12], &values[13], &values[14], &values[15],
+                     &values[16], &values[17], &values[18], &values[19]);
+
+    if (matched != 1 + 4 + BOARD_ROWS * BOARD_COLS ||
+        values[0] < 0 || values[1] < 0 ||
+        (values[2] != 0 && values[2] != 1) ||
+        (values[3] != 0 && values[3] != 1))
+        return false;
+
+    for (index = 4; index < 4 + BOARD_ROWS * BOARD_COLS; index = -~index)
+    {
+        int value = values[index];
+        if (value < 0 || (value != 0 && (value & (value - 1)) != 0))
+            return false;
+    }
+
+    utils_copy_string(username, parsed_username, username_size);
+    board_init(board);
+    board->score = values[0];
+    board->step = values[1];
+    board->game_start = values[2] != 0;
+    board->game_over = values[3] != 0;
+
+    for (index = 0; index < BOARD_ROWS * BOARD_COLS; index = -~index)
+        board->grid[index / BOARD_COLS][index % BOARD_COLS] = values[index + 4];
+
+    return true;
 }
 
 bool storage_close(FILE *file)

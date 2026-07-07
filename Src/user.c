@@ -1,5 +1,6 @@
 #include "user.h"
 #include "config.h"
+#include "game.h"
 #include "rank.h"
 #include "storage.h"
 #include "ui.h"
@@ -323,7 +324,8 @@ void run_game_system(void)
             }
             else
             {
-                ui_show_game(current_user);
+                game_run(current_user);
+                continue;
             }
             ui_wait_for_enter();
         }

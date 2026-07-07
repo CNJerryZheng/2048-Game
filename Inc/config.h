@@ -1,7 +1,7 @@
 #pragma once
 #define USER_DATA_FILE "Data/user.dat"
 #define SCORES_DATA_FILE "Data/scores.dat"
-#define RANK_DATA_FILE "Data/rank.dat"
+#define SAVES_DATA_FILE "Data/saves.dat"
 #define HISTORY_DATA_FILE "Data/history.dat"
 
 #define USER_PASSWORD_LENGTH_MAX 21 // 最长密码长度20+冗余位置1
@@ -14,6 +14,10 @@
 #define RANK_TOP_COUNT 10    // 排行榜展示前十名
 
 #define INPUT_BUFFER_LENGTH 128 // 输入缓冲区长度
+
+#define BOARD_CELL_WIDTH 5             // 控制台棋盘单元格宽度
+#define GAME_NEW_TILE_TWO_PERCENT 90   // 新方块生成数字2的概率（百分比）
+#define SAVE_ENTRIES_MAX 256           // 最多保存的用户存档数
 
 #define HASH_BASE1 131u       // 第一组多项式哈希底数
 #define HASH_BASE2 13331u     // 第二组多项式哈希底数

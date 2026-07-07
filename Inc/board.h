@@ -1,57 +1,51 @@
-#ifndef GAMELOGIC_H
-#define GAMELOGIC_H
+#pragma once
 
-#include <iostream>
-#include <QSoundEffect>
+#include <stdbool.h>
 
-//控制上下左右移动的标志枚举类型
-enum CMD
+#define BOARD_ROWS 4
+#define BOARD_COLS 4
+#define BOARD_TARGET 2048
+
+typedef enum BoardCommand
 {
-    CMD_UP,
-    CMD_DOWN,
-    CMD_LEFT,
-    CMD_RIGHT,
-};
+    BOARD_CMD_UP,
+    BOARD_CMD_DOWN,
+    BOARD_CMD_LEFT,
+    BOARD_CMD_RIGHT
+} BoardCommand;
 
-//状态提示枚举类型
-enum STAT
+typedef enum BoardStatus
 {
-    STAT_WAIT,
-    STAT_PROCESS,
-    STAT_WIN,
-    STAT_LOSE,
-};
+    BOARD_STATUS_WAIT,
+    BOARD_STATUS_PROCESS,
+    BOARD_STATUS_WIN,
+    BOARD_STATUS_LOSE
+} BoardStatus;
 
-
-class board
+typedef struct Board
 {
-public:
-    board();
-    void init();
-    bool createNum();
-    void process(int cmd);
-    int judge();                    // 判定游戏输赢
-    void initAll();                 // 重新开始游戏
+    bool game_start;
+    bool game_over;
+    int grid[BOARD_ROWS][BOARD_COLS];
+    int score;
+    int step;
+} Board;
 
-    void moveUp();
-    void moveDown();
-    void moveLeft();
-    void moveRight();
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-    bool getGameStart();
-    void setGameStart(bool);
-    int getData(int row, int col);
-    int getGrade();                 // 获取总分
-    int getStep();                  // 获取步数                      
+void board_init(Board *board);
+void board_start(Board *board);
+bool board_create_number(Board *board);
+bool board_process(Board *board, BoardCommand command);
+BoardStatus board_judge(const Board *board);
+int board_get_data(const Board *board, int row, int col);
+int board_get_score(const Board *board);
+int board_get_step(const Board *board);
+bool board_has_started(const Board *board);
+bool board_is_over(const Board *board);
 
-private:
-    bool gameStart = false;
-    bool gameOver = false;
-    int ROW = 4;
-    int COL = 4;
-    int grid[110][110];
-    int score = 0;
-    int step = 0;                    
-};
-
-#endif // GAMELOGIC_H
+#ifdef __cplusplus
+}
+#endif
