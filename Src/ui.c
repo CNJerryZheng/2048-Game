@@ -1,5 +1,7 @@
 #include "ui.h"
+#include "utils.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 #ifdef _WIN32
@@ -38,25 +40,25 @@ void ui_show_welcome(void)
     puts("      合并数字，挑战最高分！      ");
 }
 
-void ui_show_main_menu(const char *current_user)
+void ui_show_main_menu(const char *current_user, bool has_save)
 {
+    bool logged_in = (current_user != NULL && current_user[0] != '\0');
+
     ui_clear_screen();
     puts("================================");
     puts("          2048 游戏系统          ");
     puts("================================");
 
-    if (current_user != NULL && current_user[0] != '\0')
-    {
+    if (logged_in)
         printf("当前登录用户：%s\n", current_user);
-    }
     else
-    {
         puts("当前状态：未登录");
-    }
 
     puts("--------------------------------");
     puts("1. 用户中心（登录 / 注册）");
     puts("2. 开始游戏");
+    if (logged_in && has_save)
+        puts("4. 继续上局");
     puts("3. 查看排行榜");
     puts("0. 退出程序");
     puts("================================");
@@ -164,4 +166,45 @@ void ui_wait_for_enter(void)
     while ((ch = getchar()) != '\n' && ch != EOF)
     {
     }
+}
+
+bool ui_ask_continue_save(int saved_score, bool saved_won)
+{
+    char choice;
+    char input[INPUT_BUFFER_LENGTH];
+
+    ui_clear_screen();
+    puts("================================");
+    puts("           检测到上局存档          ");
+    puts("================================");
+    printf("上局分数：%d\n", saved_score);
+    if (saved_won)
+        puts("上局状态：已达 2048");
+    puts("--------------------------------");
+    puts("1. 继续上局");
+    puts("2. 重新开始新局");
+    puts("================================");
+
+    while (true)
+    {
+        if (!utils_read_line("请选择（1/2）：", input, sizeof(input)))
+            continue;
+        if (input[0] == '\0' || input[1] != '\0')
+            continue;
+        choice = input[0];
+        if (choice == '1')
+            return true;
+        if (choice == '2')
+            return false;
+    }
+}
+
+void ui_show_save_prompt(void)
+{
+    puts("  P            保存当前进度（不退出游戏）");
+}
+
+void ui_show_save_success(int saved_score)
+{
+    printf("  ← 存档成功！当前进度已保存（分数 %d）。\n", saved_score);
 }

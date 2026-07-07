@@ -1,6 +1,8 @@
 #include "user.h"
 #include "config.h"
+#include "game.h"
 #include "rank.h"
+#include "save.h"
 #include "storage.h"
 #include "ui.h"
 #include "utils.h"
@@ -279,7 +281,9 @@ void run_game_system(void)
 
     while (true)
     {
-        ui_show_main_menu(current_user);
+        bool has_save = (current_user[0] != '\0') &&
+                        save_exists(SAVES_DATA_FILE, current_user);
+        ui_show_main_menu(current_user, has_save);
 
         if (!utils_read_choice(&choice))
         {
@@ -302,13 +306,31 @@ void run_game_system(void)
             }
             else
             {
-                ui_show_game(current_user);
+                game_run(current_user);
+                continue; // game_run 内部已经处理过回车，避免重复等待
             }
             ui_wait_for_enter();
         }
         else if (choice == '3')
         {
             rank_show(SCORES_DATA_FILE, current_user);
+            ui_wait_for_enter();
+        }
+        else if (choice == '4')
+        {
+            if (current_user[0] == '\0')
+            {
+                puts("请先登录后再继续上局！");
+            }
+            else if (!save_exists(SAVES_DATA_FILE, current_user))
+            {
+                puts("您没有可继续的存档。");
+            }
+            else
+            {
+                game_run(current_user);
+                continue;
+            }
             ui_wait_for_enter();
         }
         else if (choice == '0')
