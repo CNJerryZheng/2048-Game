@@ -4,12 +4,24 @@
 
 #include "config.h"
 
-typedef struct
+typedef struct RankEntry
 {
     char username[USER_NAME_LENGTH_MAX];
     int score;
+    int max_tile;
+    int steps;
+    int elapsed_seconds;
+    char mode[GAME_MODE_ID_LENGTH];
 } RankEntry;
 
-void rank_show(const char *scores_file, const char *current_user); // 显示排行榜界面，current_user为当前登录的用户名，如果未登录则为NULL或空字符串
-
-bool rank_save_score(const char *scores_file, const char *username, int score); // 保存用户分数到排行榜，若已有记录则更新最高分，返回true表示成功，false表示失败
+int rank_load_scores(const char *scores_file,
+                     RankEntry *entries,
+                     int max_entries);
+bool rank_save_score(const char *scores_file,
+                     const char *username,
+                     int score,
+                     int max_tile,
+                     int steps,
+                     int elapsed_seconds,
+                     const char *mode);
+bool rank_delete_user(const char *scores_file, const char *username);

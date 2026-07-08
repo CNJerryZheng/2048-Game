@@ -1,5 +1,6 @@
 #include "board.h"
 #include "config.h"
+#include "utils.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -89,6 +90,7 @@ void board_start(Board *board)
     }
 
     board_init(board);
+    utils_copy_string(board->mode, "classic", sizeof(board->mode));
     (void)board_create_number(board);
     (void)board_create_number(board);
     board->game_start = true;
@@ -217,4 +219,24 @@ bool board_has_started(const Board *board)
 bool board_is_over(const Board *board)
 {
     return board != NULL && board->game_over;
+}
+
+int board_get_max_tile(const Board *board)
+{
+    int row;
+    int col;
+    int maximum = 0;
+
+    if (board == NULL)
+        return 0;
+
+    for (row = 0; row < BOARD_ROWS; row = -~row)
+    {
+        for (col = 0; col < BOARD_COLS; col = -~col)
+        {
+            if (board->grid[row][col] > maximum)
+                maximum = board->grid[row][col];
+        }
+    }
+    return maximum;
 }

@@ -19,14 +19,19 @@ bool storage_write_user(FILE *file, const char *username, uint32_t hash1, uint32
 
 bool storage_write_score(FILE *file, const char *username, int score); // 将用户名和加密分数写入文件，格式为"username\tencrypted_score\n"，成功返回true，失败返回false
 
-bool storage_write_save(FILE *file,
-                        const char *username,
-                        const Board *board); // 写入一条游戏存档
+bool storage_save_exists(const char *saves_file,
+                         const char *username); // 判断用户是否有存档
 
-bool storage_parse_save_line(const char *line,
-                             char *username,
-                             size_t username_size,
-                             Board *board); // 解析一条游戏存档
+bool storage_load_save(const char *saves_file,
+                       const char *username,
+                       Board *board); // 读取用户存档
+
+bool storage_save_game(const char *saves_file,
+                       const char *username,
+                       const Board *board); // 新增或覆盖用户存档
+
+bool storage_delete_save(const char *saves_file,
+                         const char *username); // 删除用户存档
 
 bool storage_close(FILE *file); // 关闭文件，成功返回true，失败返回false
 

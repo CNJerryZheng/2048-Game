@@ -1,19 +1,28 @@
-# 2048 Game
+# 2048 Game (Qt)
 
-基于 C、CMake、Ninja 和 MinGW 构建的控制台 2048 游戏项目。
+基于 C 语言游戏核心与 Qt 6 Widgets 界面的 2048 游戏。
 
-## 开发环境
+## 功能
 
-当前 `.vscode/settings.json` 和 `.vscode/tasks.json` 使用本机 CMake、Ninja 与 MinGW 的绝对路径，以保证在当前电脑上直接编译运行。
+- 注册、登录、游客模式与用户中心
+- 自动保存、加密存档、撤销与重新开始
+- 排行榜、历史成绩、最大方块、步数和用时统计
+- 可配置自动保存步数
+- 预留游戏模式与 MOD 注册接口
 
-## 编译运行
+## 构建环境
 
-在 VS Code 中按 `Ctrl+Shift+B`，默认任务 `2048: Build and Run` 会依次完成 CMake 配置、编译并运行程序。
+- CMake 3.16 或更高版本
+- Qt 6 Widgets
+- 支持 C11 与 C++17 的编译器
 
-生成的程序位于：
+## 构建
 
-```text
-build/bin/2048_game.exe
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/Qt
+cmake --build build
 ```
 
-用户注册数据保存在 `Data/user.txt`。
+Windows 下生成的程序默认位于 `build/bin/2048_game_qt.exe`。
+
+原控制台版本保存在仓库的 `noqt` 分支。
