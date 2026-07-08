@@ -1,7 +1,8 @@
 #include "mainwindow.h"
 #include "boardwidget.h"
 
-extern "C" {
+extern "C"
+{
 #include "auth.h"
 #include "config.h"
 #include "game_mode.h"
@@ -33,26 +34,25 @@ extern "C" {
 #include <QTimer>
 #include <QVBoxLayout>
 
-namespace {
-QPushButton *makeButton(const QString &text)
+namespace
 {
-    auto *button = new QPushButton(text);
-    button->setMinimumHeight(42);
-    button->setCursor(Qt::PointingHandCursor);
-    return button;
-}
+    QPushButton *makeButton(const QString &text)
+    {
+        auto *button = new QPushButton(text);
+        button->setMinimumHeight(42);
+        button->setCursor(Qt::PointingHandCursor);
+        return button;
+    }
 
-QString formatTime(int totalSeconds)
-{
-    const int hours = totalSeconds / 3600;
-    const int minutes = totalSeconds % 3600 / 60;
-    const int seconds = totalSeconds % 60;
-    return hours > 0
-        ? QString("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0'))
-              .arg(seconds, 2, 10, QLatin1Char('0'))
-        : QString("%1:%2").arg(minutes, 2, 10, QLatin1Char('0'))
-              .arg(seconds, 2, 10, QLatin1Char('0'));
-}
+    QString formatTime(int totalSeconds)
+    {
+        const int hours = totalSeconds / 3600;
+        const int minutes = totalSeconds % 3600 / 60;
+        const int seconds = totalSeconds % 60;
+        return hours > 0
+                   ? QString("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'))
+                   : QString("%1:%2").arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'));
+    }
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -100,8 +100,7 @@ MainWindow::MainWindow(QWidget *parent)
         "QHeaderView::section{background:#eee8df;color:#3c3a32;border:0;"
         "border-right:1px solid #ded6cc;border-bottom:1px solid #ded6cc;"
         "padding:7px;font-weight:700;}"
-        "QTableCornerButton::section{background:#eee8df;border:0;}"
-    );
+        "QTableCornerButton::section{background:#eee8df;border:0;}");
 }
 
 void MainWindow::buildAuthPage()
@@ -248,7 +247,8 @@ void MainWindow::buildGamePage()
 
     connect(undoButton, &QPushButton::clicked, this, &MainWindow::undoMove);
     connect(restartButton, &QPushButton::clicked, this, &MainWindow::restartGame);
-    connect(saveButton, &QPushButton::clicked, this, [this] { saveGame(); });
+    connect(saveButton, &QPushButton::clicked, this, [this]
+            { saveGame(); });
     connect(menuButton, &QPushButton::clicked, this, &MainWindow::returnToMenu);
     connect(boardWidget, &BoardWidget::animationFinished,
             this, &MainWindow::finishAnimatedMove);
@@ -264,7 +264,8 @@ void MainWindow::buildDetailPage()
 
 void MainWindow::showDetailPage(const QString &titleText, QWidget *content)
 {
-    while (QLayoutItem *item = detailLayout->takeAt(0)) {
+    while (QLayoutItem *item = detailLayout->takeAt(0))
+    {
         delete item->widget();
         delete item;
     }
@@ -288,7 +289,8 @@ void MainWindow::login()
     const AuthResult result = auth_login_user(USER_DATA_FILE,
                                               username.constData(),
                                               password.constData());
-    if (result != AUTH_OK) {
+    if (result != AUTH_OK)
+    {
         loginMessage->setText(authMessage(result));
         return;
     }
@@ -301,7 +303,8 @@ void MainWindow::login()
 
 void MainWindow::registerUser()
 {
-    if (registerPassword->text() != registerConfirmation->text()) {
+    if (registerPassword->text() != registerConfirmation->text())
+    {
         registerMessage->setText("两次输入的密码不一致。");
         return;
     }
@@ -311,8 +314,9 @@ void MainWindow::registerUser()
                                                  username.constData(),
                                                  password.constData());
     registerMessage->setText(result == AUTH_OK ? "注册成功，请切换到登录页。"
-                                                : authMessage(result));
-    if (result == AUTH_OK) {
+                                               : authMessage(result));
+    if (result == AUTH_OK)
+    {
         loginUsername->setText(registerUsername->text().trimmed());
         registerPassword->clear();
         registerConfirmation->clear();
@@ -339,7 +343,7 @@ void MainWindow::showMenu()
                                     : QString("欢迎，%1").arg(currentUser));
     const QByteArray username = currentUser.toUtf8();
     continueButton->setEnabled(!guestMode && storage_save_exists(
-        SAVES_DATA_FILE, username.constData()));
+                                                 SAVES_DATA_FILE, username.constData()));
     userCenterButton->setEnabled(!guestMode);
     historyButton->setEnabled(!guestMode);
     pages->setCurrentWidget(menuPage);
@@ -348,7 +352,8 @@ void MainWindow::showMenu()
 void MainWindow::beginNewGame()
 {
     const QByteArray username = currentUser.toUtf8();
-    if (!guestMode && storage_save_exists(SAVES_DATA_FILE, username.constData())) {
+    if (!guestMode && storage_save_exists(SAVES_DATA_FILE, username.constData()))
+    {
         const auto answer = QMessageBox::question(
             this, "开始新游戏", "开始新游戏会覆盖当前存档，是否继续？");
         if (answer != QMessageBox::Yes)
@@ -370,7 +375,8 @@ void MainWindow::startSavedGame()
     if (guestMode)
         return;
     const QByteArray username = currentUser.toUtf8();
-    if (!storage_load_save(SAVES_DATA_FILE, username.constData(), &board)) {
+    if (!storage_load_save(SAVES_DATA_FILE, username.constData(), &board))
+    {
         QMessageBox::warning(this, "读取失败", "没有找到有效存档。");
         showMenu();
         return;
@@ -387,7 +393,8 @@ void MainWindow::startSavedGame()
 
 void MainWindow::saveGame(bool showMessage)
 {
-    if (guestMode) {
+    if (guestMode)
+    {
         if (showMessage)
             gameMessage->setText("游客模式不保存游戏。");
         return;
@@ -424,7 +431,8 @@ void MainWindow::logout()
 
 void MainWindow::undoMove()
 {
-    if (!canUndo) {
+    if (!canUndo)
+    {
         gameMessage->setText("当前没有可以撤销的操作。");
         return;
     }
@@ -444,7 +452,8 @@ void MainWindow::restartGame()
         return;
     hasQueuedMove = false;
     boardWidget->cancelAnimation();
-    if (!guestMode) {
+    if (!guestMode)
+    {
         const QByteArray username = currentUser.toUtf8();
         (void)storage_delete_save(SAVES_DATA_FILE, username.constData());
     }
@@ -471,8 +480,10 @@ void MainWindow::showRanking()
     table->setSelectionMode(QAbstractItemView::NoSelection);
     int currentRank = -1;
     int currentScore = 0;
-    for (int index = 0; index < count; ++index) {
-        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username)) {
+    for (int index = 0; index < count; ++index)
+    {
+        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username))
+        {
             currentRank = index + 1;
             currentScore = entries[index].score;
         }
@@ -485,8 +496,10 @@ void MainWindow::showRanking()
         table->setItem(index, 4, new QTableWidgetItem(QString::number(entries[index].steps)));
         table->setItem(index, 5, new QTableWidgetItem(formatTime(entries[index].elapsed_seconds)));
         table->setItem(index, 6, new QTableWidgetItem(modeDisplayName(entries[index].mode)));
-        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username)) {
-            for (int column = 0; column < table->columnCount(); ++column) {
+        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username))
+        {
+            for (int column = 0; column < table->columnCount(); ++column)
+            {
                 table->item(index, column)->setBackground(QColor("#fff0a6"));
                 QFont font = table->item(index, column)->font();
                 font.setBold(true);
@@ -495,15 +508,19 @@ void MainWindow::showRanking()
         }
     }
     layout->addWidget(table);
-    if (!guestMode && currentRank > RANK_TOP_COUNT) {
+    if (!guestMode && currentRank > RANK_TOP_COUNT)
+    {
         const int tenthScore = entries[RANK_TOP_COUNT - 1].score;
         const int difference = qMax(0, tenthScore - currentScore + 1);
         auto *tip = new QLabel(QString("当前第 %1 名，离第十名还差 %2 分。")
-                                   .arg(currentRank).arg(difference));
+                                   .arg(currentRank)
+                                   .arg(difference));
         tip->setAlignment(Qt::AlignCenter);
         tip->setStyleSheet("font-size:13px;color:#776e65;");
         layout->addWidget(tip);
-    } else if (!guestMode && currentRank < 0) {
+    }
+    else if (!guestMode && currentRank < 0)
+    {
         auto *tip = new QLabel("当前分数过低，请继续游戏。");
         tip->setAlignment(Qt::AlignCenter);
         tip->setStyleSheet("font-size:13px;color:#776e65;");
@@ -528,10 +545,10 @@ void MainWindow::showHistory()
         {"完成时间", "分数", "最大方块", "步数", "用时", "模式", "用户"});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    for (int row = 0; row < count; ++row) {
+    for (int row = 0; row < count; ++row)
+    {
         const HistoryEntry &entry = entries[count - row - 1];
-        table->setItem(row, 0, new QTableWidgetItem(
-            QDateTime::fromSecsSinceEpoch(entry.finished_at).toString("yyyy-MM-dd HH:mm")));
+        table->setItem(row, 0, new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(entry.finished_at).toString("yyyy-MM-dd HH:mm")));
         table->setItem(row, 1, new QTableWidgetItem(QString::number(entry.score)));
         table->setItem(row, 2, new QTableWidgetItem(QString::number(entry.max_tile)));
         table->setItem(row, 3, new QTableWidgetItem(QString::number(entry.steps)));
@@ -574,60 +591,66 @@ void MainWindow::showUserCenter()
     layout->addWidget(deleteButton);
 
     connect(changeButton, &QPushButton::clicked, content,
-            [this, oldPassword, newPassword, confirmation, message] {
-        if (newPassword->text() != confirmation->text()) {
-            message->setText("两次输入的新密码不一致。");
-            return;
-        }
-        const QByteArray user = currentUser.toUtf8();
-        const QByteArray oldValue = oldPassword->text().toUtf8();
-        const QByteArray newValue = newPassword->text().toUtf8();
-        const AuthResult result = auth_change_password(
-            USER_DATA_FILE, user.constData(), oldValue.constData(), newValue.constData());
-        if (result == AUTH_OK) {
-            QMessageBox::information(this, "修改密码",
-                                     "密码修改成功，请重新登录。");
-            logout();
-            return;
-        }
-        message->setText(authMessage(result));
-    });
+            [this, oldPassword, newPassword, confirmation, message]
+            {
+                if (newPassword->text() != confirmation->text())
+                {
+                    message->setText("两次输入的新密码不一致。");
+                    return;
+                }
+                const QByteArray user = currentUser.toUtf8();
+                const QByteArray oldValue = oldPassword->text().toUtf8();
+                const QByteArray newValue = newPassword->text().toUtf8();
+                const AuthResult result = auth_change_password(
+                    USER_DATA_FILE, user.constData(), oldValue.constData(), newValue.constData());
+                if (result == AUTH_OK)
+                {
+                    QMessageBox::information(this, "修改密码",
+                                             "密码修改成功，请重新登录。");
+                    logout();
+                    return;
+                }
+                message->setText(authMessage(result));
+            });
     connect(clearButton, &QPushButton::clicked, content,
-            [this, message] {
-        if (QMessageBox::question(this, "清理数据",
-            "将删除当前账号的存档、排行榜记录和历史成绩，账号会保留。是否继续？")
-            != QMessageBox::Yes)
-            return;
-        const QByteArray user = currentUser.toUtf8();
-        (void)storage_delete_save(SAVES_DATA_FILE, user.constData());
-        const bool rankOk = rank_delete_user(SCORES_DATA_FILE, user.constData());
-        const bool historyOk = history_delete_user(HISTORY_DATA_FILE, user.constData());
-        message->setText(rankOk && historyOk ? "用户数据已清理。" : "部分数据清理失败。");
-    });
+            [this, message]
+            {
+                if (QMessageBox::question(this, "清理数据",
+                                          "将删除当前账号的存档、排行榜记录和历史成绩，账号会保留。是否继续？") != QMessageBox::Yes)
+                    return;
+                const QByteArray user = currentUser.toUtf8();
+                (void)storage_delete_save(SAVES_DATA_FILE, user.constData());
+                const bool rankOk = rank_delete_user(SCORES_DATA_FILE, user.constData());
+                const bool historyOk = history_delete_user(HISTORY_DATA_FILE, user.constData());
+                message->setText(rankOk && historyOk ? "用户数据已清理。" : "部分数据清理失败。");
+            });
     connect(deleteButton, &QPushButton::clicked, content,
-            [this, oldPassword, message] {
-        if (oldPassword->text().isEmpty()) {
-            message->setText("删除账号前请输入当前密码。");
-            return;
-        }
-        if (QMessageBox::warning(this, "删除账号",
-            "账号及其全部数据将永久删除，是否继续？",
-            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
-            return;
-        const QByteArray user = currentUser.toUtf8();
-        const QByteArray password = oldPassword->text().toUtf8();
-        const AuthResult result = auth_delete_user(
-            USER_DATA_FILE, user.constData(), password.constData());
-        if (result != AUTH_OK) {
-            message->setText(authMessage(result));
-            return;
-        }
-        (void)storage_delete_save(SAVES_DATA_FILE, user.constData());
-        (void)rank_delete_user(SCORES_DATA_FILE, user.constData());
-        (void)history_delete_user(HISTORY_DATA_FILE, user.constData());
-        QMessageBox::information(this, "删除账号", "账号已删除。");
-        logout();
-    });
+            [this, oldPassword, message]
+            {
+                if (oldPassword->text().isEmpty())
+                {
+                    message->setText("删除账号前请输入当前密码。");
+                    return;
+                }
+                if (QMessageBox::warning(this, "删除账号",
+                                         "账号及其全部数据将永久删除，是否继续？",
+                                         QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+                    return;
+                const QByteArray user = currentUser.toUtf8();
+                const QByteArray password = oldPassword->text().toUtf8();
+                const AuthResult result = auth_delete_user(
+                    USER_DATA_FILE, user.constData(), password.constData());
+                if (result != AUTH_OK)
+                {
+                    message->setText(authMessage(result));
+                    return;
+                }
+                (void)storage_delete_save(SAVES_DATA_FILE, user.constData());
+                (void)rank_delete_user(SCORES_DATA_FILE, user.constData());
+                (void)history_delete_user(HISTORY_DATA_FILE, user.constData());
+                QMessageBox::information(this, "删除账号", "账号已删除。");
+                logout();
+            });
     showDetailPage("用户中心", content);
 }
 
@@ -646,10 +669,10 @@ void MainWindow::showSettings()
     form->addRow("有效移动后自动保存", interval);
     layout->addLayout(form);
     auto *modInfo = new QLabel(QString(
-        "玩法扩展接口已预留，可注册计步、限时及自定义棋盘模式。\n"
-        "MOD 目录：%1/Mods\n当前已注册模式：%2")
-        .arg(QString::fromUtf8(GAME_DATA_DIRECTORY))
-        .arg(game_mode_count()));
+                                   "玩法扩展接口已预留，可注册计步、限时及自定义棋盘模式。\n"
+                                   "MOD 目录：%1/Mods\n当前已注册模式：%2")
+                                   .arg(QString::fromUtf8(GAME_DATA_DIRECTORY))
+                                   .arg(game_mode_count()));
     modInfo->setWordWrap(true);
     layout->addWidget(modInfo);
     auto *message = new QLabel;
@@ -658,12 +681,13 @@ void MainWindow::showSettings()
     layout->addWidget(saveSettingsButton);
     layout->addStretch();
     connect(saveSettingsButton, &QPushButton::clicked, content,
-            [interval, message] {
-        QSettings settings(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/settings.ini",
-                           QSettings::IniFormat);
-        settings.setValue("autoSaveInterval", interval->value());
-        message->setText("设置已保存。");
-    });
+            [interval, message]
+            {
+                QSettings settings(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/settings.ini",
+                                   QSettings::IniFormat);
+                settings.setValue("autoSaveInterval", interval->value());
+                message->setText("设置已保存。");
+            });
     showDetailPage("设置", content);
 }
 
@@ -693,8 +717,8 @@ void MainWindow::renderBoard()
     undoButton->setEnabled(canUndo);
     saveButton->setEnabled(!guestMode);
     gameMessage->setText(guestMode
-        ? "游客模式 · 方向键或 W/A/S/D 移动方块"
-        : "方向键或 W/A/S/D 移动方块");
+                             ? "游客模式 · 方向键或 W/A/S/D 移动方块"
+                             : "方向键或 W/A/S/D 移动方块");
 }
 
 void MainWindow::updateGameInfo()
@@ -713,20 +737,30 @@ void MainWindow::updateTimeLabel()
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
-    if (!gameActive || pages->currentWidget() != gamePage) {
+    if (!gameActive || pages->currentWidget() != gamePage)
+    {
         QMainWindow::keyPressEvent(event);
         return;
     }
     BoardCommand command;
-    switch (event->key()) {
+    switch (event->key())
+    {
     case Qt::Key_Up:
-    case Qt::Key_W: command = BOARD_CMD_UP; break;
+    case Qt::Key_W:
+        command = BOARD_CMD_UP;
+        break;
     case Qt::Key_Down:
-    case Qt::Key_S: command = BOARD_CMD_DOWN; break;
+    case Qt::Key_S:
+        command = BOARD_CMD_DOWN;
+        break;
     case Qt::Key_Left:
-    case Qt::Key_A: command = BOARD_CMD_LEFT; break;
+    case Qt::Key_A:
+        command = BOARD_CMD_LEFT;
+        break;
     case Qt::Key_Right:
-    case Qt::Key_D: command = BOARD_CMD_RIGHT; break;
+    case Qt::Key_D:
+        command = BOARD_CMD_RIGHT;
+        break;
     default:
         QMainWindow::keyPressEvent(event);
         return;
@@ -738,7 +772,8 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 void MainWindow::handleMove(BoardCommand command)
 {
     updateTimeLabel();
-    if (boardWidget->isAnimating()) {
+    if (boardWidget->isAnimating())
+    {
         queuedMove = command;
         hasQueuedMove = true;
         return;
@@ -746,7 +781,8 @@ void MainWindow::handleMove(BoardCommand command)
 
     Board previous = board;
     previous.elapsed_seconds = currentElapsedSeconds();
-    if (!board_process(&board, command)) {
+    if (!board_process(&board, command))
+    {
         gameMessage->setText("这个方向无法移动。");
         updateTimeLabel();
         return;
@@ -764,21 +800,25 @@ void MainWindow::finishAnimatedMove()
         return;
     undoButton->setEnabled(canUndo);
     const int interval = autoSaveInterval();
-    if (!guestMode && interval > 0 && board.step % interval == 0) {
+    if (!guestMode && interval > 0 && board.step % interval == 0)
+    {
         saveGame(false);
         gameMessage->setText(QString("已在第 %1 步自动保存。").arg(board.step));
     }
     const BoardStatus status = board_judge(&board);
-    if (status == BOARD_STATUS_WIN || status == BOARD_STATUS_LOSE) {
+    if (status == BOARD_STATUS_WIN || status == BOARD_STATUS_LOSE)
+    {
         hasQueuedMove = false;
         finishGame(status);
         return;
     }
 
-    if (hasQueuedMove) {
+    if (hasQueuedMove)
+    {
         const BoardCommand command = queuedMove;
         hasQueuedMove = false;
-        QTimer::singleShot(0, this, [this, command] { handleMove(command); });
+        QTimer::singleShot(0, this, [this, command]
+                           { handleMove(command); });
     }
 }
 
@@ -788,10 +828,12 @@ void MainWindow::finishGame(BoardStatus status)
     gameTimer->stop();
     bool rankSaved = false;
     bool historySaved = false;
-    if (!guestMode) {
+    if (!guestMode)
+    {
         const QByteArray username = currentUser.toUtf8();
         const GameModeDefinition *mode = game_mode_find(board.mode);
-        if (mode == nullptr || mode->ranking_enabled) {
+        if (mode == nullptr || mode->ranking_enabled)
+        {
             rankSaved = rank_save_score(SCORES_DATA_FILE, username.constData(),
                                         board.score, board_get_max_tile(&board),
                                         board.step, board.elapsed_seconds, board.mode);
@@ -808,16 +850,16 @@ void MainWindow::finishGame(BoardStatus status)
         (void)storage_delete_save(SAVES_DATA_FILE, username.constData());
     }
     const QString recordText = guestMode
-        ? "游客成绩不计入排行榜和历史记录。"
-        : QString("排行榜：%1，历史记录：%2")
-              .arg(rankSaved ? "已更新" : "未更新")
-              .arg(historySaved ? "已保存" : "保存失败");
+                                   ? "游客成绩不计入排行榜和历史记录。"
+                                   : QString("排行榜：%1，历史记录：%2")
+                                         .arg(rankSaved ? "已更新" : "未更新")
+                                         .arg(historySaved ? "已保存" : "保存失败");
     QMessageBox::information(
         this,
         status == BOARD_STATUS_WIN ? "游戏胜利" : "游戏结束",
         QString("%1\n最终分数：%2\n最大方块：%3\n步数：%4\n用时：%5\n%6")
             .arg(status == BOARD_STATUS_WIN ? "恭喜你合成了 2048！"
-                                             : "棋盘已经没有可移动位置。")
+                                            : "棋盘已经没有可移动位置。")
             .arg(board.score)
             .arg(board_get_max_tile(&board))
             .arg(board.step)
@@ -849,14 +891,22 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 QString MainWindow::authMessage(int result) const
 {
-    switch (static_cast<AuthResult>(result)) {
-    case AUTH_INVALID_USERNAME: return "用户名需为 2-31 位字母、数字或下划线。";
-    case AUTH_INVALID_PASSWORD: return "密码需为 6-20 位且不能包含空白字符。";
-    case AUTH_USERNAME_EXISTS: return "该用户名已经注册。";
-    case AUTH_USER_NOT_FOUND: return "用户不存在。";
-    case AUTH_WRONG_PASSWORD: return "密码错误。";
-    case AUTH_FILE_ERROR: return "数据文件读写失败。";
-    default: return {};
+    switch (static_cast<AuthResult>(result))
+    {
+    case AUTH_INVALID_USERNAME:
+        return "用户名需为 2-31 位字母、数字或下划线。";
+    case AUTH_INVALID_PASSWORD:
+        return "密码需为 6-20 位且不能包含空白字符。";
+    case AUTH_USERNAME_EXISTS:
+        return "该用户名已经注册。";
+    case AUTH_USER_NOT_FOUND:
+        return "用户不存在。";
+    case AUTH_WRONG_PASSWORD:
+        return "密码错误。";
+    case AUTH_FILE_ERROR:
+        return "数据文件读写失败。";
+    default:
+        return {};
     }
 }
 
