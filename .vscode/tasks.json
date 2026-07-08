@@ -48,6 +48,28 @@
                 "clear": true,
                 "focus": false
             }
+        },
+        {
+            "label": "2048 Qt: 生成测试用户数据",
+            "type": "process",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/generate-test-data.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true,
+                "focus": false
+            }
         }
     ]
 }

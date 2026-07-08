@@ -18,6 +18,7 @@ class QVBoxLayout;
 class BoardWidget;
 class QKeyEvent;
 class QCloseEvent;
+class QEvent;
 
 class MainWindow : public QMainWindow
 {
@@ -29,6 +30,7 @@ public:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void buildAuthPage();
@@ -47,11 +49,18 @@ private:
     void undoMove();
     void restartGame();
     void showRanking();
+    void showPublicProfile(const QString &username);
     void showHistory();
     void showUserCenter();
+    void showEditProfile();
+    void showAccountSettings();
+    void showPasswordSettings();
+    void showClearHistory();
+    void showDeleteAccount();
     void showSettings();
     void showHelp();
-    void showDetailPage(const QString &title, QWidget *content);
+    void showDetailPage(const QString &title, QWidget *content,
+                        void (MainWindow::*backAction)() = nullptr);
     void renderBoard();
     void updateGameInfo();
     void updateTimeLabel();
@@ -60,6 +69,16 @@ private:
     void finishGame(BoardStatus status);
     int currentElapsedSeconds() const;
     int autoSaveInterval() const;
+    void loadKeyBindings();
+    bool handleConfiguredKey(QKeyEvent *event);
+    QString movementKeyText() const;
+    QString settingsFilePath() const;
+    QString userDirectoryPath() const;
+    QString userDirectoryForUsername(const QString &username) const;
+    QString saveFilePath() const;
+    QString historyFilePath() const;
+    QString profileFilePath() const;
+    void migrateLegacyUserData();
     QString authMessage(int result) const;
     QString modeDisplayName(const char *mode) const;
 
@@ -99,4 +118,12 @@ private:
     bool canUndo = false;
     bool hasQueuedMove = false;
     BoardCommand queuedMove = BOARD_CMD_UP;
+    int moveUpKey = Qt::Key_W;
+    int moveDownKey = Qt::Key_S;
+    int moveLeftKey = Qt::Key_A;
+    int moveRightKey = Qt::Key_D;
+    int undoKey = Qt::Key_Z;
+    int saveKey = Qt::Key_C;
+    int restartKey = Qt::Key_R;
+    int menuKey = Qt::Key_B;
 };

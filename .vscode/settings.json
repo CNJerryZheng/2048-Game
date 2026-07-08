@@ -1,0 +1,5 @@
+{
+    "cmake.buildDirectory": "${workspaceFolder}/build-debug",
+    "cmake.buildType": "Debug",
+    "cmake.configureOnOpen": true
+}

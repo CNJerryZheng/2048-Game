@@ -8,6 +8,11 @@
 #include <stdio.h>
 #include <string.h>
 
+static AuthResult auth_rewrite_user(const char *user_file,
+                                    const char *username,
+                                    const char *new_password,
+                                    int delete_user);
+
 static int auth_username_valid(const char *username)
 {
     size_t index;
@@ -105,7 +110,7 @@ AuthResult auth_register_user(const char *user_file,
         (void)storage_close(file);
     }
 
-    if (!utils_password_hash(username, password, &hash1, &hash2))
+    if (!utils_password_hash("2048Game", password, &hash1, &hash2))
         return AUTH_FILE_ERROR;
 
     file = storage_open_append(user_file);
@@ -138,7 +143,7 @@ AuthResult auth_login_user(const char *user_file,
 
     if (username == NULL || password == NULL)
         return AUTH_USER_NOT_FOUND;
-    if (!utils_password_hash(username,
+    if (!utils_password_hash("2048Game",
                              password,
                              &input_hash1,
                              &input_hash2))
@@ -162,6 +167,12 @@ AuthResult auth_login_user(const char *user_file,
             (void)storage_close(file);
             return AUTH_OK;
         }
+        if (utils_password_hash(username, password, &input_hash1, &input_hash2) &&
+            input_hash1 == stored_hash1 && input_hash2 == stored_hash2)
+        {
+            (void)storage_close(file);
+            return auth_rewrite_user(user_file, username, password, 0);
+        }
     }
 
     (void)storage_close(file);
@@ -184,7 +195,7 @@ static AuthResult auth_rewrite_user(const char *user_file,
     int found = 0;
 
     if (!delete_user &&
-        !utils_password_hash(username, new_password, &new_hash1, &new_hash2))
+        !utils_password_hash("2048Game", new_password, &new_hash1, &new_hash2))
         return AUTH_FILE_ERROR;
 
     if (snprintf(cache_file, sizeof(cache_file), "%s.tmp", user_file) < 0)
@@ -251,4 +262,58 @@ AuthResult auth_delete_user(const char *user_file,
     if (result != AUTH_OK)
         return result;
     return auth_rewrite_user(user_file, username, NULL, 1);
+}
+
+AuthResult auth_rename_user(const char *user_file,
+                            const char *old_username,
+                            const char *new_username)
+{
+    FILE *source;
+    FILE *target;
+    char cache_file[512];
+    char stored_username[USER_NAME_LENGTH_MAX];
+    uint32_t hash1;
+    uint32_t hash2;
+    int found = 0;
+    if (!auth_username_valid(new_username))
+        return AUTH_INVALID_USERNAME;
+    if (snprintf(cache_file, sizeof(cache_file), "%s.tmp", user_file) < 0)
+        return AUTH_FILE_ERROR;
+    source = storage_open_read(user_file);
+    target = storage_open_write(cache_file);
+    if (source == NULL || target == NULL)
+    {
+        if (source != NULL) (void)storage_close(source);
+        if (target != NULL) (void)storage_close(target);
+        return AUTH_FILE_ERROR;
+    }
+    while (auth_read_record(source, stored_username, &hash1, &hash2))
+    {
+        if (utils_string_equal(stored_username, new_username))
+        {
+            (void)storage_close(source);
+            (void)storage_close(target);
+            (void)storage_remove_file(cache_file);
+            return AUTH_USERNAME_EXISTS;
+        }
+        if (utils_string_equal(stored_username, old_username))
+        {
+            utils_copy_string(stored_username, new_username, sizeof(stored_username));
+            found = 1;
+        }
+        if (!storage_write_user(target, stored_username, hash1, hash2))
+        {
+            (void)storage_close(source);
+            (void)storage_close(target);
+            (void)storage_remove_file(cache_file);
+            return AUTH_FILE_ERROR;
+        }
+    }
+    if (!storage_close(source) || !storage_close(target) || !found ||
+        !storage_replace_file(cache_file, user_file))
+    {
+        (void)storage_remove_file(cache_file);
+        return AUTH_FILE_ERROR;
+    }
+    return AUTH_OK;
 }

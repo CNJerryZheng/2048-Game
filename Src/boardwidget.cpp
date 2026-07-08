@@ -1,4 +1,5 @@
 #include "boardwidget.h"
+#include "theme.h"
 
 #include <QColor>
 #include <QEasingCurve>
@@ -8,32 +9,6 @@
 #include <QVariantAnimation>
 
 #include <cmath>
-
-namespace {
-QColor tileColor(int value)
-{
-    switch (value) {
-    case 2: return QColor(236, 228, 219);
-    case 4: return QColor(232, 217, 186);
-    case 8: return QColor(231, 178, 125);
-    case 16: return QColor(232, 152, 107);
-    case 32: return QColor(230, 127, 98);
-    case 64: return QColor(227, 99, 66);
-    case 128: return QColor(236, 208, 105);
-    case 256: return QColor(237, 212, 115);
-    case 512: return QColor(239, 202, 87);
-    case 1024: return QColor(240, 200, 78);
-    default: return value >= 2048 ? QColor(248, 211, 71)
-                                  : QColor(216, 206, 196);
-    }
-}
-
-QColor textColor(int value)
-{
-    return value >= 8 ? QColor(255, 255, 255)
-                      : QColor(114, 101, 84);
-}
-}
 
 BoardWidget::BoardWidget(QWidget *parent)
     : QWidget(parent)
@@ -192,16 +167,13 @@ void BoardWidget::drawTile(QPainter &painter,
                            int value) const
 {
     painter.setPen(Qt::NoPen);
-    painter.setBrush(tileColor(value));
+    painter.setBrush(Theme::tileBackground(value));
     painter.drawRoundedRect(rect, 8.0, 8.0);
     if (value == 0)
         return;
 
-    QFont font = painter.font();
-    font.setWeight(QFont::Black);
-    font.setPixelSize(value < 1000 ? 29 : value < 10000 ? 24 : 20);
-    painter.setFont(font);
-    painter.setPen(textColor(value));
+    painter.setFont(Theme::tileFont(value, painter.font()));
+    painter.setPen(Theme::tileForeground(value));
     painter.drawText(rect, Qt::AlignCenter, QString::number(value));
 }
 

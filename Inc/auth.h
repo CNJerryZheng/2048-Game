@@ -24,3 +24,6 @@ AuthResult auth_change_password(const char *user_file,
 AuthResult auth_delete_user(const char *user_file,
                             const char *username,
                             const char *password);
+AuthResult auth_rename_user(const char *user_file,
+                            const char *old_username,
+                            const char *new_username);

@@ -11,6 +11,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 qt_standard_project_setup()
 
 add_library(game_core STATIC
+    Src/app_log.c
     Src/auth.c
     Src/board.c
     Src/game_mode.c
@@ -33,8 +34,12 @@ qt_add_executable(2048_game_qt WIN32
     Src/main.cpp
     Src/boardwidget.cpp
     Src/mainwindow.cpp
+    Src/theme.cpp
+    Src/widget_helpers.cpp
     Inc/boardwidget.h
     Inc/mainwindow.h
+    Inc/theme.h
+    Inc/widget_helpers.h
 )
 target_link_libraries(2048_game_qt PRIVATE game_core Qt6::Widgets)
 target_include_directories(2048_game_qt PRIVATE Inc)

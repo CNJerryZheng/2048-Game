@@ -20,3 +20,6 @@ int history_load_user(const char *history_file,
                       HistoryEntry *entries,
                       int max_entries);
 bool history_delete_user(const char *history_file, const char *username);
+bool history_rename_user(const char *history_file,
+                         const char *old_username,
+                         const char *new_username);
