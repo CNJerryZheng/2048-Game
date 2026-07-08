@@ -2,12 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 
 project(2048GameQt VERSION 1.0 LANGUAGES C CXX)
 
-configure_file(
-    Inc/generated_config.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/generated_config.h
-    @ONLY
-)
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -27,7 +21,6 @@ add_library(game_core STATIC
 )
 target_include_directories(game_core PUBLIC
     Inc
-    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 if(MSVC)
     target_compile_definitions(game_core PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -38,7 +31,9 @@ endif()
 
 qt_add_executable(2048_game_qt WIN32
     Src/main.cpp
+    Src/boardwidget.cpp
     Src/mainwindow.cpp
+    Inc/boardwidget.h
     Inc/mainwindow.h
 )
 target_link_libraries(2048_game_qt PRIVATE game_core Qt6::Widgets)

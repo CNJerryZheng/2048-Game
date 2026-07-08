@@ -15,6 +15,7 @@ class QStackedWidget;
 class QTabWidget;
 class QTimer;
 class QVBoxLayout;
+class BoardWidget;
 class QKeyEvent;
 class QCloseEvent;
 
@@ -52,7 +53,10 @@ private:
     void showHelp();
     void showDetailPage(const QString &title, QWidget *content);
     void renderBoard();
+    void updateGameInfo();
     void updateTimeLabel();
+    void handleMove(BoardCommand command);
+    void finishAnimatedMove();
     void finishGame(BoardStatus status);
     int currentElapsedSeconds() const;
     int autoSaveInterval() const;
@@ -84,7 +88,7 @@ private:
     QLabel *timeLabel = nullptr;
     QLabel *modeLabel = nullptr;
     QLabel *gameMessage = nullptr;
-    QLabel *tiles[BOARD_ROWS][BOARD_COLS] = {};
+    BoardWidget *boardWidget = nullptr;
     QTimer *gameTimer = nullptr;
     QElapsedTimer sessionTimer;
     QString currentUser;
@@ -93,4 +97,6 @@ private:
     bool gameActive = false;
     bool guestMode = false;
     bool canUndo = false;
+    bool hasQueuedMove = false;
+    BoardCommand queuedMove = BOARD_CMD_UP;
 };

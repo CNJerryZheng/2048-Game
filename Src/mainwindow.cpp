@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "boardwidget.h"
 
 extern "C" {
 #include "auth.h"
@@ -18,7 +19,6 @@ extern "C" {
 #include <QFormLayout>
 #include <QFont>
 #include <QGridLayout>
-#include <QGroupBox>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QLabel>
@@ -34,35 +34,6 @@ extern "C" {
 #include <QVBoxLayout>
 
 namespace {
-QString tileStyle(int value)
-{
-    QString background = "#cdc1b4";
-    QString foreground = "#776e65";
-
-    switch (value) {
-    case 2: background = "#eee4da"; break;
-    case 4: background = "#ede0c8"; break;
-    case 8: background = "#f2b179"; foreground = "white"; break;
-    case 16: background = "#f59563"; foreground = "white"; break;
-    case 32: background = "#f67c5f"; foreground = "white"; break;
-    case 64: background = "#f65e3b"; foreground = "white"; break;
-    case 128: background = "#edcf72"; foreground = "white"; break;
-    case 256: background = "#edcc61"; foreground = "white"; break;
-    case 512: background = "#edc850"; foreground = "white"; break;
-    case 1024: background = "#edc53f"; foreground = "white"; break;
-    default:
-        if (value >= 2048) {
-            background = "#edc22e";
-            foreground = "white";
-        }
-        break;
-    }
-
-    return QString("background:%1;color:%2;border-radius:8px;"
-                   "font-size:24px;font-weight:700;")
-        .arg(background, foreground);
-}
-
 QPushButton *makeButton(const QString &text)
 {
     auto *button = new QPushButton(text);
@@ -106,6 +77,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setStyleSheet(
         "QMainWindow{background:#faf8ef;}"
+        "QStackedWidget{background:#faf8ef;}"
         "QLabel{color:#776e65;}"
         "QLineEdit,QSpinBox{padding:9px;border:1px solid #bbada0;border-radius:6px;"
         "background:#ffffff;color:#3c3a32;selection-background-color:#8f7a66;"
@@ -117,9 +89,18 @@ MainWindow::MainWindow(QWidget *parent)
         "QPushButton:pressed{background:#d8ad1f;}"
         "QPushButton:disabled{background:#ddd5cc;color:#776e65;border-color:#c8beb4;}"
         "QTabWidget::pane{border:0;}"
-        "QTabBar::tab{color:#000000;background:transparent;padding:8px 16px;}"
-        "QTabBar::tab:selected{color:#000000;background:#aaa9a5;}"
-        "QTabBar::tab:hover:!selected{background:#e8e4dc;}"
+        "QTabBar::tab{color:#3c3a32;background:#fffdf8;border:1px solid #ded6cc;"
+        "padding:8px 16px;margin-right:2px;}"
+        "QTabBar::tab:selected{color:#3c3a32;background:#f2cf48;border-color:#d8ad1f;}"
+        "QTabBar::tab:hover:!selected{background:#f5efe6;}"
+        "QTableWidget{background:#fffdf8;color:#3c3a32;border:1px solid #ded6cc;"
+        "border-radius:8px;gridline-color:#e8e1d8;alternate-background-color:#f7f3ed;"
+        "selection-background-color:#f8e59a;selection-color:#3c3a32;}"
+        "QTableWidget::item{color:#3c3a32;padding:5px;}"
+        "QHeaderView::section{background:#eee8df;color:#3c3a32;border:0;"
+        "border-right:1px solid #ded6cc;border-bottom:1px solid #ded6cc;"
+        "padding:7px;font-weight:700;}"
+        "QTableCornerButton::section{background:#eee8df;border:0;}"
     );
 }
 
@@ -247,19 +228,8 @@ void MainWindow::buildGamePage()
     header->addWidget(modeLabel, 1, 2);
     outer->addLayout(header);
 
-    auto *boardFrame = new QGroupBox;
-    boardFrame->setStyleSheet("QGroupBox{background:#bbada0;border:0;border-radius:10px;padding:8px;}");
-    auto *grid = new QGridLayout(boardFrame);
-    grid->setSpacing(8);
-    for (int row = 0; row < BOARD_ROWS; ++row) {
-        for (int col = 0; col < BOARD_COLS; ++col) {
-            tiles[row][col] = new QLabel;
-            tiles[row][col]->setAlignment(Qt::AlignCenter);
-            tiles[row][col]->setMinimumSize(105, 105);
-            grid->addWidget(tiles[row][col], row, col);
-        }
-    }
-    outer->addWidget(boardFrame);
+    boardWidget = new BoardWidget;
+    outer->addWidget(boardWidget, 1);
     gameMessage = new QLabel("方向键或 W/A/S/D 移动方块");
     gameMessage->setAlignment(Qt::AlignCenter);
     outer->addWidget(gameMessage);
@@ -280,6 +250,8 @@ void MainWindow::buildGamePage()
     connect(restartButton, &QPushButton::clicked, this, &MainWindow::restartGame);
     connect(saveButton, &QPushButton::clicked, this, [this] { saveGame(); });
     connect(menuButton, &QPushButton::clicked, this, &MainWindow::returnToMenu);
+    connect(boardWidget, &BoardWidget::animationFinished,
+            this, &MainWindow::finishAnimatedMove);
 }
 
 void MainWindow::buildDetailPage()
@@ -358,6 +330,9 @@ void MainWindow::enterAsGuest()
 void MainWindow::showMenu()
 {
     gameActive = false;
+    hasQueuedMove = false;
+    if (boardWidget != nullptr)
+        boardWidget->cancelAnimation();
     gameTimer->stop();
     sessionTimer.invalidate();
     welcomeLabel->setText(guestMode ? "游客模式 · 成绩与存档不会保存"
@@ -382,6 +357,7 @@ void MainWindow::beginNewGame()
     }
     board_start(&board);
     canUndo = false;
+    hasQueuedMove = false;
     gameActive = true;
     sessionTimer.start();
     gameTimer->start();
@@ -401,6 +377,7 @@ void MainWindow::startSavedGame()
     }
     board.game_over = false;
     canUndo = false;
+    hasQueuedMove = false;
     gameActive = true;
     sessionTimer.start();
     gameTimer->start();
@@ -427,6 +404,8 @@ void MainWindow::saveGame(bool showMessage)
 
 void MainWindow::returnToMenu()
 {
+    hasQueuedMove = false;
+    boardWidget->cancelAnimation();
     if (!guestMode)
         saveGame(false);
     showMenu();
@@ -449,6 +428,8 @@ void MainWindow::undoMove()
         gameMessage->setText("当前没有可以撤销的操作。");
         return;
     }
+    hasQueuedMove = false;
+    boardWidget->cancelAnimation();
     board = undoBoard;
     canUndo = false;
     sessionTimer.restart();
@@ -461,6 +442,8 @@ void MainWindow::restartGame()
     if (QMessageBox::question(this, "重新开始",
                               "确定放弃当前进度并重新开始吗？") != QMessageBox::Yes)
         return;
+    hasQueuedMove = false;
+    boardWidget->cancelAnimation();
     if (!guestMode) {
         const QByteArray username = currentUser.toUtf8();
         (void)storage_delete_save(SAVES_DATA_FILE, username.constData());
@@ -480,6 +463,7 @@ void MainWindow::showRanking()
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     auto *table = new QTableWidget(visibleCount, 7);
+    table->setAlternatingRowColors(true);
     table->setHorizontalHeaderLabels(
         {"排名", "用户名", "分数", "最大方块", "步数", "用时", "模式"});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -503,7 +487,7 @@ void MainWindow::showRanking()
         table->setItem(index, 6, new QTableWidgetItem(modeDisplayName(entries[index].mode)));
         if (!guestMode && currentUser == QString::fromUtf8(entries[index].username)) {
             for (int column = 0; column < table->columnCount(); ++column) {
-                table->item(index, column)->setBackground(QColor("#f2cf48"));
+                table->item(index, column)->setBackground(QColor("#fff0a6"));
                 QFont font = table->item(index, column)->font();
                 font.setBold(true);
                 table->item(index, column)->setFont(font);
@@ -539,6 +523,7 @@ void MainWindow::showHistory()
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     auto *table = new QTableWidget(count, 7);
+    table->setAlternatingRowColors(true);
     table->setHorizontalHeaderLabels(
         {"完成时间", "分数", "最大方块", "步数", "用时", "模式", "用户"});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -648,7 +633,8 @@ void MainWindow::showUserCenter()
 
 void MainWindow::showSettings()
 {
-    QSettings settings("Jerry", "2048GameQt");
+    QSettings settings(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/settings.ini",
+                       QSettings::IniFormat);
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     auto *form = new QFormLayout;
@@ -673,7 +659,8 @@ void MainWindow::showSettings()
     layout->addStretch();
     connect(saveSettingsButton, &QPushButton::clicked, content,
             [interval, message] {
-        QSettings settings("Jerry", "2048GameQt");
+        QSettings settings(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/settings.ini",
+                           QSettings::IniFormat);
         settings.setValue("autoSaveInterval", interval->value());
         message->setText("设置已保存。");
     });
@@ -701,22 +688,21 @@ void MainWindow::showHelp()
 
 void MainWindow::renderBoard()
 {
-    scoreLabel->setText(QString("分数：%1").arg(board.score));
-    stepLabel->setText(QString("步数：%1").arg(board.step));
-    modeLabel->setText(QString("模式：%1").arg(modeDisplayName(board.mode)));
-    updateTimeLabel();
-    for (int row = 0; row < BOARD_ROWS; ++row) {
-        for (int col = 0; col < BOARD_COLS; ++col) {
-            const int value = board.grid[row][col];
-            tiles[row][col]->setText(value == 0 ? QString() : QString::number(value));
-            tiles[row][col]->setStyleSheet(tileStyle(value));
-        }
-    }
+    updateGameInfo();
+    boardWidget->setBoard(board);
     undoButton->setEnabled(canUndo);
     saveButton->setEnabled(!guestMode);
     gameMessage->setText(guestMode
         ? "游客模式 · 方向键或 W/A/S/D 移动方块"
         : "方向键或 W/A/S/D 移动方块");
+}
+
+void MainWindow::updateGameInfo()
+{
+    scoreLabel->setText(QString("分数：%1").arg(board.score));
+    stepLabel->setText(QString("步数：%1").arg(board.step));
+    modeLabel->setText(QString("模式：%1").arg(modeDisplayName(board.mode)));
+    updateTimeLabel();
 }
 
 void MainWindow::updateTimeLabel()
@@ -746,8 +732,18 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    // 连续按键可能让 QTimer 事件延后，因此每次移动事件都主动刷新计时。
+    handleMove(command);
+}
+
+void MainWindow::handleMove(BoardCommand command)
+{
     updateTimeLabel();
+    if (boardWidget->isAnimating()) {
+        queuedMove = command;
+        hasQueuedMove = true;
+        return;
+    }
+
     Board previous = board;
     previous.elapsed_seconds = currentElapsedSeconds();
     if (!board_process(&board, command)) {
@@ -757,16 +753,33 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     }
     undoBoard = previous;
     canUndo = true;
-    renderBoard();
+    undoButton->setEnabled(false);
+    updateGameInfo();
+    boardWidget->animateMove(previous, board, command);
+}
 
+void MainWindow::finishAnimatedMove()
+{
+    if (!gameActive || pages->currentWidget() != gamePage)
+        return;
+    undoButton->setEnabled(canUndo);
     const int interval = autoSaveInterval();
     if (!guestMode && interval > 0 && board.step % interval == 0) {
         saveGame(false);
         gameMessage->setText(QString("已在第 %1 步自动保存。").arg(board.step));
     }
     const BoardStatus status = board_judge(&board);
-    if (status == BOARD_STATUS_WIN || status == BOARD_STATUS_LOSE)
+    if (status == BOARD_STATUS_WIN || status == BOARD_STATUS_LOSE) {
+        hasQueuedMove = false;
         finishGame(status);
+        return;
+    }
+
+    if (hasQueuedMove) {
+        const BoardCommand command = queuedMove;
+        hasQueuedMove = false;
+        QTimer::singleShot(0, this, [this, command] { handleMove(command); });
+    }
 }
 
 void MainWindow::finishGame(BoardStatus status)
@@ -822,7 +835,9 @@ int MainWindow::currentElapsedSeconds() const
 
 int MainWindow::autoSaveInterval() const
 {
-    return QSettings("Jerry", "2048GameQt").value("autoSaveInterval", 5).toInt();
+    QSettings settings(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/settings.ini",
+                       QSettings::IniFormat);
+    return settings.value("autoSaveInterval", 5).toInt();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

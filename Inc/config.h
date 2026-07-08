@@ -1,7 +1,5 @@
 #pragma once
 
-#include "generated_config.h"
-
 #ifndef GAME_DATA_DIRECTORY
 #define GAME_DATA_DIRECTORY "Data"
 #endif
