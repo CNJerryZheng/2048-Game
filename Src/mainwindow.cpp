@@ -1,7 +1,8 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "boardwidget.h"
 #include "theme.h"
 #include "widget_helpers.h"
+#include "mod_loader.h"
 
 extern "C"
 {
@@ -18,7 +19,11 @@ extern "C"
 #include <QByteArray>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCheckBox>
+#include <QCryptographicHash>
+#include <QDate>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QColor>
 #include <QDir>
 #include <QFormLayout>
@@ -31,6 +36,7 @@ extern "C"
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
@@ -42,6 +48,7 @@ extern "C"
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
+#include <QUrl>
 
 using WidgetHelpers::formatTime;
 using WidgetHelpers::makeButton;
@@ -50,8 +57,13 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     QDir().mkpath(QString::fromUtf8(GAME_DATA_DIRECTORY));
+    QDir().mkpath(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/DLC");
     QDir().mkpath(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/Mods");
+    QDir().mkpath(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/System");
     app_log_initialize(LOG_DATA_FILE);
+    const ModLoader::LoadResult modResult = ModLoader::loadModeMods(modDirectoryPath());
+    for (const QString &error : modResult.errors)
+        APP_LOG_WARNING_MSG("mod", "%s", error.toUtf8().constData());
     APP_LOG_INFO_MSG("app", "application started");
     setWindowTitle("2048 Game");
     setMinimumSize(620, 720);
@@ -93,6 +105,13 @@ void MainWindow::buildAuthPage()
     loginUsername->setPlaceholderText("请输入2-31位字母、数字或下划线");
     loginPassword->setPlaceholderText("请输入6-20位密码");
     loginPassword->setEchoMode(QLineEdit::Password);
+    auto *showLoginPassword = new QCheckBox("显示密码");
+    connect(showLoginPassword, &QCheckBox::toggled, loginPassword,
+            [this](bool visible)
+            {
+                loginPassword->setEchoMode(visible ? QLineEdit::Normal
+                                                   : QLineEdit::Password);
+            });
     loginMessage = new QLabel;
     loginMessage->setWordWrap(true);
     loginMessage->setProperty("role", "hint");
@@ -100,6 +119,7 @@ void MainWindow::buildAuthPage()
     auto *guestButton = makeButton("游客进入（成绩不保存）");
     loginLayout->addRow("用户名", loginUsername);
     loginLayout->addRow("密码", loginPassword);
+    loginLayout->addRow(QString(), showLoginPassword);
     loginLayout->addRow(loginMessage);
     loginLayout->addRow(loginButton);
     loginLayout->addRow(guestButton);
@@ -157,9 +177,10 @@ void MainWindow::buildMenuPage()
     auto *settingsButton = makeButton("设置");
     auto *helpButton = makeButton("帮助");
     auto *logoutButton = makeButton("退出登录");
+    modeButton = makeButton("经典模式");
     for (QPushButton *button : {newGameButton, continueButton, rankingButton,
                                 historyButton, userCenterButton, settingsButton,
-                                helpButton, logoutButton})
+                                helpButton, logoutButton, modeButton})
         button->setStyleSheet("font-size:18px;font-weight:800;");
 
     layout->addWidget(title);
@@ -174,6 +195,7 @@ void MainWindow::buildMenuPage()
     layout->addWidget(helpButton);
     layout->addWidget(logoutButton);
     layout->addStretch();
+    layout->addWidget(modeButton, 0, Qt::AlignLeft);
     pages->addWidget(menuPage);
 
     connect(newGameButton, &QPushButton::clicked, this, &MainWindow::beginNewGame);
@@ -184,6 +206,7 @@ void MainWindow::buildMenuPage()
     connect(settingsButton, &QPushButton::clicked, this, &MainWindow::showSettings);
     connect(helpButton, &QPushButton::clicked, this, &MainWindow::showHelp);
     connect(logoutButton, &QPushButton::clicked, this, &MainWindow::logout);
+    connect(modeButton, &QPushButton::clicked, this, &MainWindow::cycleGameMode);
 }
 
 void MainWindow::buildGamePage()
@@ -270,7 +293,19 @@ void MainWindow::showDetailPage(const QString &titleText, QWidget *content,
 void MainWindow::login()
 {
     const QByteArray username = loginUsername->text().trimmed().toUtf8();
+    clearSessionPassword();
     const QByteArray password = loginPassword->text().toUtf8();
+    if (username == "Administrator" && password == "2048Game")
+    {
+        clearSessionPassword();
+        currentUser = "Administrator";
+        guestMode = false;
+        adminMode = true;
+        hasUnsavedChanges = false;
+        loginPassword->clear();
+        showAdminDashboard();
+        return;
+    }
     const AuthResult result = auth_login_user(USER_DATA_FILE,
                                               username.constData(),
                                               password.constData());
@@ -282,8 +317,20 @@ void MainWindow::login()
         return;
     }
     currentUser = QString::fromUtf8(username);
+    sessionPassword = password;
     APP_LOG_INFO_MSG("auth", "login succeeded for user=%s", username.constData());
+    if (accountStatus(currentUser) == "deleted")
+    {
+        loginMessage->setText("账号已注销，无法登录。");
+        currentUser.clear();
+        clearSessionPassword();
+        loginPassword->clear();
+        return;
+    }
+    ensureUserUid(currentUser);
     guestMode = false;
+    adminMode = isConfiguredAdmin(currentUser);
+    hasUnsavedChanges = false;
     migrateLegacyUserData();
     loadKeyBindings();
     loginPassword->clear();
@@ -307,6 +354,16 @@ void MainWindow::registerUser()
                                                : authMessage(result));
     if (result == AUTH_OK)
     {
+        if (accountStatus(QString::fromUtf8(username)) == "deleted")
+        {
+            QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                               QSettings::IniFormat);
+            accounts.remove("users/" + QString::fromUtf8(username));
+            accounts.remove("status/" + QString::fromUtf8(username));
+            accounts.sync();
+        }
+        ensureUserUid(QString::fromUtf8(username));
+        setAccountStatus(QString::fromUtf8(username), "normal");
         (void)rank_delete_user(SCORES_DATA_FILE, username.constData());
         APP_LOG_INFO_MSG("auth", "user registered: %s", username.constData());
         loginUsername->setText(registerUsername->text().trimmed());
@@ -318,9 +375,11 @@ void MainWindow::registerUser()
 
 void MainWindow::enterAsGuest()
 {
+    clearSessionPassword();
     APP_LOG_INFO_MSG("auth", "guest session started");
     currentUser = "游客";
     guestMode = true;
+    hasUnsavedChanges = false;
     loadKeyBindings();
     showMenu();
 }
@@ -328,23 +387,31 @@ void MainWindow::enterAsGuest()
 void MainWindow::showMenu()
 {
     gameActive = false;
+    hasUnsavedChanges = false;
     hasQueuedMove = false;
     if (boardWidget != nullptr)
         boardWidget->cancelAnimation();
     gameTimer->stop();
     sessionTimer.invalidate();
     welcomeLabel->setText(guestMode ? "游客模式 · 成绩与存档不会保存"
-                                    : QString("欢迎，%1").arg(currentUser));
+                                    : QString("欢迎，%1").arg(displayNameForUser(currentUser)));
     const QByteArray username = currentUser.toUtf8();
     continueButton->setEnabled(!guestMode && storage_save_exists(
                                                  saveFilePath().toUtf8().constData(), username.constData()));
     userCenterButton->setEnabled(!guestMode);
     historyButton->setEnabled(!guestMode);
+    updateModeButton();
     pages->setCurrentWidget(menuPage);
 }
 
 void MainWindow::beginNewGame()
 {
+    if (isCurrentUserBanned())
+    {
+        QMessageBox::warning(this, "账号已封禁",
+                             "当前账号已被封禁，不能进入游戏。排行榜、历史记录和个人主页仍可查看。");
+        return;
+    }
     const QByteArray username = currentUser.toUtf8();
     if (!guestMode && storage_save_exists(saveFilePath().toUtf8().constData(), username.constData()))
     {
@@ -354,12 +421,14 @@ void MainWindow::beginNewGame()
             return;
         (void)storage_delete_save(saveFilePath().toUtf8().constData(), username.constData());
     }
-    (void)game_mode_start("classic", &board);
+    const QByteArray mode = selectedModeId().toUtf8();
+    (void)game_mode_start(mode.constData(), &board);
     APP_LOG_INFO_MSG("game", "new game started user=%s guest=%d mode=%s",
                      currentUser.toUtf8().constData(), guestMode ? 1 : 0, board.mode);
     canUndo = false;
     hasQueuedMove = false;
     gameActive = true;
+    hasUnsavedChanges = !guestMode;
     sessionTimer.start();
     gameTimer->start();
     pages->setCurrentWidget(gamePage);
@@ -370,6 +439,12 @@ void MainWindow::startSavedGame()
 {
     if (guestMode)
         return;
+    if (isCurrentUserBanned())
+    {
+        QMessageBox::warning(this, "账号已封禁",
+                             "当前账号已被封禁，不能进入游戏。排行榜、历史记录和个人主页仍可查看。");
+        return;
+    }
     const QByteArray username = currentUser.toUtf8();
     if (!storage_load_save(saveFilePath().toUtf8().constData(), username.constData(), &board))
     {
@@ -383,6 +458,7 @@ void MainWindow::startSavedGame()
     canUndo = false;
     hasQueuedMove = false;
     gameActive = true;
+    hasUnsavedChanges = false;
     sessionTimer.start();
     gameTimer->start();
     pages->setCurrentWidget(gamePage);
@@ -391,6 +467,8 @@ void MainWindow::startSavedGame()
 
 void MainWindow::saveGame(bool showMessage)
 {
+    if (isCurrentUserBanned())
+        return;
     if (guestMode)
     {
         if (showMessage)
@@ -408,10 +486,17 @@ void MainWindow::saveGame(bool showMessage)
     if (showMessage)
         gameMessage->setText(success ? "游戏已加密保存。"
                                      : "保存失败，请检查数据目录。");
+    if (success)
+        hasUnsavedChanges = false;
 }
 
 void MainWindow::returnToMenu()
 {
+    if (!guestMode && !hasUnsavedChanges)
+    {
+        showMenu();
+        return;
+    }
     QMessageBox box(QMessageBox::Question, "返回主菜单",
                     guestMode ? "返回主菜单将放弃当前游客棋局。"
                               : "返回主菜单前是否保存当前游戏？",
@@ -434,13 +519,26 @@ void MainWindow::returnToMenu()
 
 void MainWindow::logout()
 {
-    if (gameActive && !guestMode)
+    if (gameActive && !guestMode && hasUnsavedChanges)
         saveGame(false);
     currentUser.clear();
+    clearSessionPassword();
     guestMode = false;
+    adminMode = false;
     gameActive = false;
+    hasUnsavedChanges = false;
     gameTimer->stop();
     pages->setCurrentWidget(authPage);
+}
+
+void MainWindow::clearSessionPassword()
+{
+    if (!sessionPassword.isEmpty())
+    {
+        sessionPassword.fill('\0');
+        sessionPassword.clear();
+        sessionPassword.squeeze();
+    }
 }
 
 void MainWindow::undoMove()
@@ -454,6 +552,7 @@ void MainWindow::undoMove()
     boardWidget->cancelAnimation();
     board = undoBoard;
     canUndo = false;
+    hasUnsavedChanges = !guestMode;
     sessionTimer.restart();
     renderBoard();
     gameMessage->setText("已撤销上一步。");
@@ -461,6 +560,12 @@ void MainWindow::undoMove()
 
 void MainWindow::restartGame()
 {
+    if (isCurrentUserBanned())
+    {
+        QMessageBox::warning(this, "账号已封禁",
+                             "当前账号已被封禁，不能进入游戏。排行榜、历史记录和个人主页仍可查看。");
+        return;
+    }
     if (QMessageBox::question(this, "重新开始",
                               "确定放弃当前进度并重新开始吗？") != QMessageBox::Yes)
         return;
@@ -471,9 +576,11 @@ void MainWindow::restartGame()
         const QByteArray username = currentUser.toUtf8();
         (void)storage_delete_save(saveFilePath().toUtf8().constData(), username.constData());
     }
-    (void)game_mode_start("classic", &board);
+    const QByteArray mode = selectedModeId().toUtf8();
+    (void)game_mode_start(mode.constData(), &board);
     APP_LOG_INFO_MSG("game", "game restarted user=%s", currentUser.toUtf8().constData());
     canUndo = false;
+    hasUnsavedChanges = !guestMode;
     sessionTimer.restart();
     renderBoard();
 }
@@ -483,81 +590,192 @@ void MainWindow::showRanking()
     RankEntry entries[RANK_ENTRIES_MAX];
     const int count = rank_load_scores(SCORES_DATA_FILE,
                                        entries, RANK_ENTRIES_MAX);
-    const int visibleCount = qMin(count, RANK_TOP_COUNT);
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
-    auto *table = new QTableWidget(visibleCount, 7);
-    table->setAlternatingRowColors(true);
-    table->verticalHeader()->setVisible(false);
-    table->setHorizontalHeaderLabels(
-        {"排名", "用户名", "分数", "最大方块", "步数", "用时", "模式"});
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table->setSelectionMode(QAbstractItemView::SingleSelection);
-    table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table->setCursor(Qt::PointingHandCursor);
-    QVector<QString> profileUsers;
-    int currentRank = -1;
-    int currentScore = 0;
-    for (int index = 0; index < count; ++index)
+
+    auto configureTable = [](QTableWidget *table)
     {
-        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username))
+        table->setAlternatingRowColors(true);
+        table->verticalHeader()->setVisible(false);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setSelectionMode(QAbstractItemView::SingleSelection);
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        table->setCursor(Qt::PointingHandCursor);
+    };
+
+    auto displayUsername = [this](const RankEntry &entry)
+    {
+        const QString username = QString::fromUtf8(entry.username);
+        return entry.deleted ? QStringLiteral("（已注销）") + username
+                             : displayNameForUser(username);
+    };
+
+    auto makeModeTable = [&](const QString &modeId)
+    {
+        int filteredCount = 0;
+        for (int index = 0; index < count; ++index)
+            if (modeId == QString::fromUtf8(entries[index].mode))
+                ++filteredCount;
+        const int visibleCount = qMin(filteredCount, RANK_TOP_COUNT);
+        auto *page = new QWidget;
+        auto *pageLayout = new QVBoxLayout(page);
+        auto *table = new QTableWidget(visibleCount, 6);
+        configureTable(table);
+        table->setHorizontalHeaderLabels(
+            {"排名", "用户名", "分数", "最大方块", "步数", "用时"});
+
+        QVector<QString> profileUsers;
+        int shownRow = 0;
+        int modeRank = 0;
+        int currentRank = -1;
+        int currentScore = 0;
+        for (int index = 0; index < count; ++index)
         {
-            currentRank = index + 1;
-            currentScore = entries[index].score;
-        }
-        if (index >= visibleCount)
-            continue;
-        table->setItem(index, 0, new QTableWidgetItem(QString::number(index + 1)));
-        const QString username = QString::fromUtf8(entries[index].username);
-        profileUsers.append(username);
-        table->setItem(index, 1, new QTableWidgetItem(
-                                     entries[index].deleted ? "（已注销）" + username : username));
-        table->setItem(index, 2, new QTableWidgetItem(QString::number(entries[index].score)));
-        table->setItem(index, 3, new QTableWidgetItem(QString::number(entries[index].max_tile)));
-        table->setItem(index, 4, new QTableWidgetItem(QString::number(entries[index].steps)));
-        table->setItem(index, 5, new QTableWidgetItem(formatTime(entries[index].elapsed_seconds)));
-        table->setItem(index, 6, new QTableWidgetItem(modeDisplayName(entries[index].mode)));
-        if (!guestMode && currentUser == QString::fromUtf8(entries[index].username))
-        {
-            for (int column = 0; column < table->columnCount(); ++column)
+            if (modeId != QString::fromUtf8(entries[index].mode))
+                continue;
+            ++modeRank;
+            if (!guestMode && currentUser == QString::fromUtf8(entries[index].username))
             {
-                table->item(index, column)->setBackground(Theme::currentUserHighlight());
-                QFont font = table->item(index, column)->font();
-                font.setBold(true);
-                table->item(index, column)->setFont(font);
+                currentRank = modeRank;
+                currentScore = entries[index].score;
             }
-        }
-    }
-    connect(table, &QTableWidget::cellClicked, content,
-            [this, profileUsers](int row, int)
+            if (shownRow >= visibleCount)
+                continue;
+            table->setItem(shownRow, 0, new QTableWidgetItem(QString::number(modeRank)));
+            const QString username = QString::fromUtf8(entries[index].username);
+            profileUsers.append(username);
+            table->setItem(shownRow, 1, new QTableWidgetItem(displayUsername(entries[index])));
+            table->setItem(shownRow, 2, new QTableWidgetItem(QString::number(entries[index].score)));
+            table->setItem(shownRow, 3, new QTableWidgetItem(QString::number(entries[index].max_tile)));
+            table->setItem(shownRow, 4, new QTableWidgetItem(QString::number(entries[index].steps)));
+            table->setItem(shownRow, 5, new QTableWidgetItem(formatTime(entries[index].elapsed_seconds)));
+            if (!guestMode && currentUser == username)
             {
-                if (row >= 0 && row < profileUsers.size())
+                for (int column = 0; column < table->columnCount(); ++column)
                 {
-                    const QString username = profileUsers[row];
-                    QTimer::singleShot(0, this, [this, username]
-                                       { showPublicProfile(username); });
+                    table->item(shownRow, column)->setBackground(Theme::currentUserHighlight());
+                    QFont font = table->item(shownRow, column)->font();
+                    font.setBold(true);
+                    table->item(shownRow, column)->setFont(font);
                 }
-            });
-    layout->addWidget(table);
-    if (!guestMode && currentRank > RANK_TOP_COUNT)
+            }
+            ++shownRow;
+        }
+        connect(table, &QTableWidget::cellClicked, page,
+                [this, profileUsers](int row, int)
+                {
+                    if (row >= 0 && row < profileUsers.size())
+                    {
+                        const QString username = profileUsers[row];
+                        QTimer::singleShot(0, this, [this, username]
+                                           { showPublicProfile(username); });
+                    }
+                });
+        pageLayout->addWidget(table);
+        if (!guestMode && currentRank > RANK_TOP_COUNT && visibleCount >= RANK_TOP_COUNT)
+        {
+            const int tenthScore = table->item(RANK_TOP_COUNT - 1, 2)->text().toInt();
+            const int difference = qMax(0, tenthScore - currentScore + 1);
+            auto *tip = new QLabel(QString("当前第 %1 名，离第十名还差 %2 分。")
+                                       .arg(currentRank)
+                                       .arg(difference));
+            tip->setAlignment(Qt::AlignCenter);
+            tip->setProperty("role", "hint");
+            pageLayout->addWidget(tip);
+        }
+        else if (!guestMode && currentRank < 0)
+        {
+            auto *tip = new QLabel("当前分数过低，请继续游戏。");
+            tip->setAlignment(Qt::AlignCenter);
+            tip->setProperty("role", "hint");
+            pageLayout->addWidget(tip);
+        }
+        return page;
+    };
+
+    auto makeDragonTable = [&]()
     {
-        const int tenthScore = entries[RANK_TOP_COUNT - 1].score;
-        const int difference = qMax(0, tenthScore - currentScore + 1);
-        auto *tip = new QLabel(QString("当前第 %1 名，离第十名还差 %2 分。")
-                                   .arg(currentRank)
-                                   .arg(difference));
-        tip->setAlignment(Qt::AlignCenter);
-        tip->setProperty("role", "hint");
-        layout->addWidget(tip);
-    }
-    else if (!guestMode && currentRank < 0)
-    {
-        auto *tip = new QLabel("当前分数过低，请继续游戏。");
-        tip->setAlignment(Qt::AlignCenter);
-        tip->setProperty("role", "hint");
-        layout->addWidget(tip);
-    }
+        struct Period
+        {
+            QString name;
+            qint64 since;
+        };
+        const QDateTime now = QDateTime::currentDateTime();
+        const QList<Period> periods = {
+            {"今日", QDateTime(now.date().startOfDay()).toSecsSinceEpoch()},
+            {"本周", now.addDays(-7).toSecsSinceEpoch()},
+            {"本月", QDateTime(QDate(now.date().year(), now.date().month(), 1).startOfDay()).toSecsSinceEpoch()}};
+        auto *page = new QWidget;
+        auto *pageLayout = new QVBoxLayout(page);
+        for (int modeIndex = 0; modeIndex < game_mode_count(); ++modeIndex)
+        {
+            const GameModeDefinition *mode = game_mode_at(modeIndex);
+            if (mode == nullptr)
+                continue;
+            const QString modeId = QString::fromUtf8(mode->id);
+            auto *title = new QLabel(QString("%1").arg(modeDisplayName(mode->id)));
+            title->setAlignment(Qt::AlignCenter);
+            title->setStyleSheet("background:#eee8df;color:#3c3a32;border-radius:6px;padding:6px;font-weight:800;");
+            pageLayout->addWidget(title);
+            auto *table = new QTableWidget(periods.size(), 6);
+            configureTable(table);
+            table->setHorizontalHeaderLabels(
+                {"榜单", "用户名", "分数", "最大方块", "步数", "用时"});
+            QVector<QString> profileUsers;
+            for (int periodIndex = 0; periodIndex < periods.size(); ++periodIndex)
+            {
+                const Period &period = periods[periodIndex];
+                int winner = -1;
+                for (int index = 0; index < count; ++index)
+                {
+                    if (modeId != QString::fromUtf8(entries[index].mode))
+                        continue;
+                    if (entries[index].achieved_at > 0 && entries[index].achieved_at < period.since)
+                        continue;
+                    winner = index;
+                    break;
+                }
+                table->setItem(periodIndex, 0, new QTableWidgetItem(period.name));
+                if (winner < 0)
+                {
+                    table->setItem(periodIndex, 1, new QTableWidgetItem("暂无"));
+                    table->setItem(periodIndex, 2, new QTableWidgetItem("-"));
+                    table->setItem(periodIndex, 3, new QTableWidgetItem("-"));
+                    table->setItem(periodIndex, 4, new QTableWidgetItem("-"));
+                    table->setItem(periodIndex, 5, new QTableWidgetItem("-"));
+                    profileUsers.append(QString());
+                    continue;
+                }
+                profileUsers.append(QString::fromUtf8(entries[winner].username));
+                table->setItem(periodIndex, 1, new QTableWidgetItem(displayUsername(entries[winner])));
+                table->setItem(periodIndex, 2, new QTableWidgetItem(QString::number(entries[winner].score)));
+                table->setItem(periodIndex, 3, new QTableWidgetItem(QString::number(entries[winner].max_tile)));
+                table->setItem(periodIndex, 4, new QTableWidgetItem(QString::number(entries[winner].steps)));
+                table->setItem(periodIndex, 5, new QTableWidgetItem(formatTime(entries[winner].elapsed_seconds)));
+            }
+            connect(table, &QTableWidget::cellClicked, table,
+                    [this, profileUsers](int row, int)
+                    {
+                        if (row >= 0 && row < profileUsers.size() && !profileUsers[row].isEmpty())
+                        {
+                            const QString username = profileUsers[row];
+                            QTimer::singleShot(0, this, [this, username]
+                                               { showPublicProfile(username); });
+                        }
+                    });
+            pageLayout->addWidget(table);
+        }
+        pageLayout->addStretch();
+        return page;
+    };
+
+    auto *tabs = new QTabWidget;
+    tabs->addTab(makeDragonTable(), "全区卧龙凤雏");
+    const QStringList modes = enabledModeIds();
+    for (const QString &modeId : modes)
+        tabs->addTab(makeModeTable(modeId), modeDisplayName(modeId.toUtf8().constData()));
+    layout->addWidget(tabs);
     showDetailPage("排行榜", content);
 }
 
@@ -581,8 +799,11 @@ void MainWindow::showPublicProfile(const QString &username)
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     auto *form = new QFormLayout;
-    const QString shownName = record.deleted ? "（已注销）" + username : username;
+    const QString shownName = record.deleted ? QStringLiteral("（已注销）") + username
+                                             : displayNameForUser(username);
     form->addRow("用户名", new QLabel(shownName));
+    form->addRow("用户 UID", new QLabel(record.deleted ? "账户异常，无法显示"
+                                                   : userUid(username)));
     form->addRow("历史排名", new QLabel(QString("第 %1 名").arg(rank)));
     form->addRow("历史最高分", new QLabel(QString::number(record.score)));
     form->addRow("历史最大方块", new QLabel(QString::number(record.max_tile)));
@@ -592,7 +813,7 @@ void MainWindow::showPublicProfile(const QString &username)
     {
         form->addRow("邮箱地址", new QLabel("账户异常，无法显示"));
         form->addRow("个人简介", new QLabel("账户异常，无法显示"));
-        form->addRow("账户状态", new QLabel("账户异常，无法显示"));
+        form->addRow("账户状态", new QLabel("账户异常"));
     }
     else
     {
@@ -603,7 +824,7 @@ void MainWindow::showPublicProfile(const QString &username)
             "biography", "这个人很懒，什么都没有留下").toString());
         biography->setWordWrap(true);
         form->addRow("个人简介", biography);
-        form->addRow("账户状态", new QLabel("正常"));
+        form->addRow("账户状态", new QLabel(accountStatusText(username, false)));
     }
     layout->addLayout(form);
     layout->addStretch();
@@ -640,7 +861,7 @@ void MainWindow::showHistory()
         table->setItem(row, 4, new QTableWidgetItem(QString::number(entry.steps)));
         table->setItem(row, 5, new QTableWidgetItem(formatTime(entry.elapsed_seconds)));
         table->setItem(row, 6, new QTableWidgetItem(modeDisplayName(entry.mode)));
-        table->setItem(row, 7, new QTableWidgetItem(QString::fromUtf8(entry.username)));
+        table->setItem(row, 7, new QTableWidgetItem(displayNameForUser(QString::fromUtf8(entry.username))));
     }
     layout->addWidget(table);
     showDetailPage("我的历史成绩", content);
@@ -674,8 +895,10 @@ void MainWindow::showUserCenter()
     card->setStyleSheet("QWidget#profileCard{background:#fffdf8;border:1px solid #ded6cc;border-radius:10px;padding:12px;}"
                         "QWidget#profileCard QLabel{border:none;background:transparent;padding:0;}");
     auto *form = new QFormLayout(card);
-    form->addRow("用户名", new QLabel(currentUser));
+    form->addRow("用户名", new QLabel(displayNameForUser(currentUser)));
+    form->addRow("用户 UID", new QLabel(userUid(currentUser)));
     form->addRow("邮箱地址", new QLabel(email));
+    form->addRow("账户状态", new QLabel(accountStatusText(currentUser, false)));
     form->addRow("排行榜名次", new QLabel(rank > 0 ? QString("第 %1 名").arg(rank) : "暂无排名"));
     form->addRow("最高分数", new QLabel(rank > 0 ? QString::number(best.score) : "暂无"));
     form->addRow("最大方块", new QLabel(rank > 0 ? QString::number(best.max_tile) : "暂无"));
@@ -733,10 +956,10 @@ void MainWindow::showEditProfile()
                 QSettings oldProfile(profileFilePath(), QSettings::IniFormat);
                 const qint64 lastRename = oldProfile.value("lastUsernameChange", 0).toLongLong();
                 const qint64 now = QDateTime::currentSecsSinceEpoch();
-                if (newName != oldName && lastRename > 0 &&
-                    now < lastRename + USERNAME_CHANGE_COOLDOWN_SECONDS)
+                if (newName != oldName && !isConfiguredAdmin(oldName) && lastRename > 0 &&
+                    now < lastRename + usernameCooldownSeconds())
                 {
-                    const qint64 remaining = lastRename + USERNAME_CHANGE_COOLDOWN_SECONDS - now;
+                    const qint64 remaining = lastRename + usernameCooldownSeconds() - now;
                     const qint64 remainingMinutes = (remaining + 59) / 60;
                     message->setText(QString("距上次更改用户名不足三天，请 %1 小时 %2 分钟后更改。")
                                          .arg(remainingMinutes / 60)
@@ -752,12 +975,29 @@ void MainWindow::showEditProfile()
                         return;
                     const QByteArray oldUser = oldName.toUtf8();
                     const QByteArray newUser = newName.toUtf8();
-                    const AuthResult result = auth_rename_user(
-                        USER_DATA_FILE, oldUser.constData(), newUser.constData());
-                    if (result != AUTH_OK)
+                if (sessionPassword.isEmpty())
+                {
+                    message->setText(u8"当前登录会话缺少密码缓存，请退出后重新登录再修改用户名。");
+                    return;
+                }
+                const AuthResult result = auth_rename_user(
+                    USER_DATA_FILE, oldUser.constData(), newUser.constData(), sessionPassword.constData());
+                if (result != AUTH_OK)
+                {
+                    message->setText(authMessage(result));
+                    return;
+                }
+                    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                                       QSettings::IniFormat);
+                    const QString uid = accounts.value("users/" + oldName).toString();
+                    const QString status = accounts.value("status/" + oldName, "normal").toString();
+                    if (!uid.isEmpty())
                     {
-                        message->setText(authMessage(result));
-                        return;
+                        accounts.remove("users/" + oldName);
+                        accounts.remove("status/" + oldName);
+                        accounts.setValue("users/" + newName, uid);
+                        accounts.setValue("status/" + newName, status);
+                        accounts.sync();
                     }
                     (void)rank_rename_user(SCORES_DATA_FILE, oldUser.constData(), newUser.constData());
                     (void)history_rename_user((oldDirectory + "/history.dat").toUtf8().constData(),
@@ -767,23 +1007,16 @@ void MainWindow::showEditProfile()
                                                            oldUser.constData(), &savedBoard);
                     oldProfile.sync();
                     currentUser = newName;
-                    const QString newDirectory = userDirectoryPath();
-                    for (const QString &file : {QString("history.dat"), QString("settings.ini")})
-                        if (QFile::exists(oldDirectory + "/" + file))
-                            (void)QFile::rename(oldDirectory + "/" + file, newDirectory + "/" + file);
                     if (hasSave)
-                        (void)storage_save_game((newDirectory + "/save.dat").toUtf8().constData(),
+                        (void)storage_save_game((oldDirectory + "/save.dat").toUtf8().constData(),
                                                 newUser.constData(), &savedBoard);
-                    (void)QFile::remove(oldDirectory + "/save.dat");
-                    (void)QFile::remove(oldDirectory + "/profile.ini");
-                    (void)QDir(oldDirectory).removeRecursively();
                 }
                 QSettings updated(profileFilePath(), QSettings::IniFormat);
                 updated.setValue("email", email->text().trimmed());
                 updated.setValue("biography", biography->toPlainText().trimmed().isEmpty()
                                                    ? "这个人很懒，什么都没有留下"
                                                    : biography->toPlainText().trimmed());
-                if (newName != oldName)
+                if (newName != oldName && !isConfiguredAdmin(newName))
                     updated.setValue("lastUsernameChange", QDateTime::currentSecsSinceEpoch());
                 updated.sync();
                 loadKeyBindings();
@@ -824,14 +1057,23 @@ void MainWindow::showPasswordSettings()
     auto *confirmation = new QLineEdit;
     for (QLineEdit *edit : {oldPassword, newPassword, confirmation})
         edit->setEchoMode(QLineEdit::Password);
+    auto *showPasswords = new QCheckBox("显示密码");
+    connect(showPasswords, &QCheckBox::toggled, content,
+            [oldPassword, newPassword, confirmation](bool visible)
+            {
+                for (QLineEdit *edit : {oldPassword, newPassword, confirmation})
+                    edit->setEchoMode(visible ? QLineEdit::Normal
+                                              : QLineEdit::Password);
+            });
     oldPassword->setPlaceholderText("请输入当前密码");
     newPassword->setPlaceholderText("请输入6-20位新密码");
     confirmation->setPlaceholderText("请再次输入新密码");
-    form->addRow("当前用户", new QLabel(currentUser));
+    form->addRow("当前用户", new QLabel(displayNameForUser(currentUser)));
     form->addRow("当前密码", oldPassword);
     form->addRow("新密码", newPassword);
     form->addRow("确认新密码", confirmation);
     layout->addLayout(form);
+    layout->addWidget(showPasswords);
     auto *changeButton = makeButton("修改密码");
     auto *clearButton = makeButton("清理历史数据");
     auto *deleteButton = makeButton("注销账号");
@@ -928,6 +1170,7 @@ void MainWindow::showPasswordSettings()
                     return;
                 }
                 const QString accountDirectory = userDirectoryPath();
+                setAccountStatus(currentUser, "deleted");
                 (void)rank_mark_deleted(SCORES_DATA_FILE, user.constData());
                 (void)QDir(accountDirectory).removeRecursively();
                 APP_LOG_INFO_MSG("account", "account deleted user=%s", user.constData());
@@ -943,12 +1186,17 @@ void MainWindow::showClearHistory()
     auto *layout = new QVBoxLayout(content);
     auto *password = new QLineEdit;
     password->setEchoMode(QLineEdit::Password);
+    auto *showPassword = new QCheckBox("显示密码");
+    connect(showPassword, &QCheckBox::toggled, password,
+            [password](bool visible)
+            { password->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password); });
     password->setPlaceholderText("请输入当前密码");
     auto *message = new QLabel;
     message->setProperty("role", "hint");
     auto *clearButton = makeButton("清理历史数据");
     layout->addWidget(new QLabel("验证密码后可永久清理当前账号的历史成绩。"));
     layout->addWidget(password);
+    layout->addWidget(showPassword);
     layout->addWidget(message);
     layout->addWidget(clearButton);
     layout->addStretch();
@@ -985,12 +1233,17 @@ void MainWindow::showDeleteAccount()
     auto *layout = new QVBoxLayout(content);
     auto *password = new QLineEdit;
     password->setEchoMode(QLineEdit::Password);
+    auto *showPassword = new QCheckBox("显示密码");
+    connect(showPassword, &QCheckBox::toggled, password,
+            [password](bool visible)
+            { password->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password); });
     password->setPlaceholderText("请输入当前密码");
     auto *message = new QLabel;
     message->setProperty("role", "hint");
     auto *deleteButton = makeButton("注销账号");
     layout->addWidget(new QLabel("注销会永久删除账号及全部个人数据。"));
     layout->addWidget(password);
+    layout->addWidget(showPassword);
     layout->addWidget(message);
     layout->addWidget(deleteButton);
     layout->addStretch();
@@ -1027,6 +1280,7 @@ void MainWindow::showDeleteAccount()
             message->setText(authMessage(result));
             return;
         }
+        setAccountStatus(currentUser, "deleted");
         (void)rank_mark_deleted(SCORES_DATA_FILE, user.constData());
         (void)QDir(directory).removeRecursively();
         QMessageBox::information(this, "注销账号", "账号已永久注销。");
@@ -1045,7 +1299,7 @@ void MainWindow::showSettings()
     interval->setRange(0, 100);
     interval->setSpecialValueText("关闭自动保存");
     interval->setSuffix(" 步");
-    interval->setValue(settings.value("autoSaveInterval", 50).toInt());
+    interval->setValue(settings.value("autoSaveInterval", defaultAutoSaveInterval()).toInt());
     form->addRow("有效移动后自动保存", interval);
     auto makeKeyEdit = [](int key)
     {
@@ -1070,11 +1324,8 @@ void MainWindow::showSettings()
     form->addRow("重新开始", restartEdit);
     form->addRow("返回主菜单", menuEdit);
     layout->addLayout(form);
-    auto *modInfo = new QLabel(QString(
-                                   "玩法接口已接入 start/process/judge 钩子，可扩展计步和限时模式。\n"
-                                   "自定义棋盘尺寸需要后续将 Board 改为动态结构。\n"
-                                   "MOD 目录：%1/Mods\n当前已注册模式：%2")
-                                   .arg(QString::fromUtf8(GAME_DATA_DIRECTORY))
+    auto *modInfo = new QLabel(QString("DLC 目录：%1\n已注册模式数：%2")
+                                   .arg(QDir(modDirectoryPath()).absolutePath())
                                    .arg(game_mode_count()));
     modInfo->setWordWrap(true);
     modInfo->setProperty("role", "hint");
@@ -1082,8 +1333,17 @@ void MainWindow::showSettings()
     auto *message = new QLabel;
     message->setProperty("role", "hint");
     auto *saveSettingsButton = makeButton("保存设置");
+    auto *dlcManagerButton = makeButton("DLC 管理");
+    auto *openModDirectoryButton = makeButton("打开 DLC 目录");
+    QPushButton *adminSettingsButton = nullptr;
+    if (canOpenAdminSettings())
+        adminSettingsButton = makeButton("管理员设置");
     layout->addWidget(message);
     layout->addWidget(saveSettingsButton);
+    layout->addWidget(dlcManagerButton);
+    layout->addWidget(openModDirectoryButton);
+    if (adminSettingsButton != nullptr)
+        layout->addWidget(adminSettingsButton);
     layout->addStretch();
     connect(saveSettingsButton, &QPushButton::clicked, content,
             [this, interval, message, upEdit, downEdit, leftEdit, rightEdit,
@@ -1123,7 +1383,125 @@ void MainWindow::showSettings()
                 APP_LOG_INFO_MSG("settings", "auto save interval=%d", interval->value());
                 message->setText("设置已保存。");
             });
+    connect(dlcManagerButton, &QPushButton::clicked, this, &MainWindow::showDlcManager);
+    connect(openModDirectoryButton, &QPushButton::clicked, this, [this]
+            { QDesktopServices::openUrl(QUrl::fromLocalFile(QDir(modDirectoryPath()).absolutePath())); });
+    if (adminSettingsButton != nullptr)
+        connect(adminSettingsButton, &QPushButton::clicked, this, &MainWindow::showAdminDashboard);
     showDetailPage("设置", content);
+}
+
+void MainWindow::showDlcManager()
+{
+    QSettings settings(settingsFilePath(), QSettings::IniFormat);
+    const QStringList enabledBefore = settings.value("dlc/enabled").toStringList();
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *description = new QLabel("已授权 DLC 可以勾选加载；未授权 DLC 需要先添加 CD Key。");
+    description->setProperty("role", "hint");
+    layout->addWidget(description);
+    QList<QPair<QString, QCheckBox *>> choices;
+    const QStringList authorized = authorizedDlcIds();
+    for (int index = 0; index < game_mode_count(); ++index)
+    {
+        const GameModeDefinition *mode = game_mode_at(index);
+        if (mode == nullptr || QString::fromUtf8(mode->id) == "classic")
+            continue;
+        const QString id = QString::fromUtf8(mode->id);
+        auto *check = new QCheckBox(QString("%1%2")
+                                        .arg(QString::fromUtf8(mode->display_name))
+                                        .arg(authorized.contains(id) ? "" : "（未授权）"));
+        check->setEnabled(authorized.contains(id));
+        check->setChecked(authorized.contains(id) && enabledBefore.contains(id));
+        choices.append({id, check});
+        layout->addWidget(check);
+    }
+    auto *message = new QLabel;
+    message->setProperty("role", "hint");
+    auto *addKeyButton = makeButton("添加 DLC CD Key");
+    auto *saveButton = makeButton("保存 DLC 配置");
+    layout->addWidget(message);
+    layout->addWidget(addKeyButton);
+    layout->addWidget(saveButton);
+    layout->addStretch();
+    connect(addKeyButton, &QPushButton::clicked, this, &MainWindow::showAddDlcKey);
+    connect(saveButton, &QPushButton::clicked, content, [this, choices, enabledBefore]
+    {
+        QStringList enabled;
+        for (const auto &choice : choices)
+            if (choice.second->isEnabled() && choice.second->isChecked())
+                enabled.append(choice.first);
+        QSettings settings(settingsFilePath(), QSettings::IniFormat);
+        settings.setValue("dlc/enabled", enabled);
+        if (!enabledModeIds().contains(settings.value("dlc/current", "classic").toString()))
+            settings.setValue("dlc/current", "classic");
+        settings.sync();
+        QStringList loaded;
+        QStringList unloaded;
+        for (const QString &id : enabled)
+            if (!enabledBefore.contains(id))
+                loaded.append(modeDisplayName(id.toUtf8().constData()));
+        for (const QString &id : enabledBefore)
+            if (!enabled.contains(id))
+                unloaded.append(modeDisplayName(id.toUtf8().constData()));
+        QStringList messages;
+        if (!loaded.isEmpty()) messages.append(QString("加载 %1 成功").arg(loaded.join("、")));
+        if (!unloaded.isEmpty()) messages.append(QString("卸载 %1 成功").arg(unloaded.join("、")));
+        if (messages.isEmpty()) messages.append("DLC 配置没有变化");
+        QMessageBox::information(this, "DLC 管理", messages.join("\n"));
+        updateModeButton();
+        showSettings();
+    });
+    showDetailPage("DLC 管理", content, &MainWindow::showSettings);
+}
+
+void MainWindow::showAddDlcKey()
+{
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *key = new QLineEdit;
+    key->setPlaceholderText("请输入管理员发放的16位 CD Key");
+    auto *message = new QLabel;
+    message->setProperty("role", "hint");
+    auto *verify = makeButton("验证并添加");
+    layout->addWidget(key);
+    layout->addWidget(message);
+    layout->addWidget(verify);
+    layout->addStretch();
+    connect(verify, &QPushButton::clicked, content, [this, key, message]
+    {
+        const QString input = key->text().trimmed().toUpper();
+        if (input.size() != 16)
+        {
+            message->setText("CD Key 必须是16位。");
+            return;
+        }
+        QSettings keys(userDirectoryPath() + "/dlc_keys.ini", QSettings::IniFormat);
+        QStringList authorized = keys.value("authorized/list").toStringList();
+        for (int index = 0; index < game_mode_count(); ++index)
+        {
+            const GameModeDefinition *mode = game_mode_at(index);
+            if (mode == nullptr || QString::fromUtf8(mode->id) == "classic")
+                continue;
+            const QString id = QString::fromUtf8(mode->id);
+            const QString hash = dlcKeyHash(input);
+            QSettings registry(modDirectoryPath() + "/CDKeys/" + userUid(currentUser) + "_" + id + ".ini",
+                               QSettings::IniFormat);
+            if (keys.value("issued/" + id).toString() == hash ||
+                registry.value("keyHash").toString() == hash)
+            {
+                if (!authorized.contains(id))
+                    authorized.append(id);
+                keys.setValue("authorized/list", authorized);
+                keys.sync();
+                QMessageBox::information(this, "DLC", QString("%1 授权成功。").arg(modeDisplayName(mode->id)));
+                showDlcManager();
+                return;
+            }
+        }
+        message->setText("CD Key 无效，或并未发放给当前用户。");
+    });
+    showDetailPage("添加 DLC CD Key", content, &MainWindow::showDlcManager);
 }
 
 void MainWindow::showHelp()
@@ -1144,6 +1522,351 @@ void MainWindow::showHelp()
     layout->addWidget(help);
     layout->addStretch();
     showDetailPage("帮助", content);
+}
+
+bool MainWindow::isConfiguredAdmin(const QString &username) const
+{
+    QFile file(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/admins.dat");
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    while (!file.atEnd())
+        if (QString::fromUtf8(file.readLine()).trimmed() == username)
+            return true;
+    return false;
+}
+
+void MainWindow::showAdminDashboard()
+{
+    if (!canOpenAdminSettings())
+    {
+        QMessageBox::warning(this, "操作失败", "当前账号不能进入管理员设置。");
+        showMenu();
+        return;
+    }
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *welcome = new QLabel(QString("管理员：%1").arg(displayNameForUser(currentUser)));
+    welcome->setAlignment(Qt::AlignCenter);
+    welcome->setStyleSheet("font-size:20px;font-weight:700;");
+    auto *admins = makeButton("添加与管理管理员");
+    auto *system = makeButton("系统设置");
+    auto *banUser = makeButton("封禁 / 解封用户");
+    auto *issueDlc = makeButton("发放 DLC CD Key");
+    auto *deleteUserButton = makeButton("删除用户");
+    auto *logoutButton = makeButton("退出管理员账户");
+    for (QPushButton *button : {admins, system, banUser, issueDlc, deleteUserButton, logoutButton})
+        button->setStyleSheet("font-size:18px;font-weight:800;");
+    layout->addWidget(welcome);
+    if (isSuperAdminUser(currentUser))
+    {
+        layout->addWidget(admins);
+        layout->addWidget(deleteUserButton);
+    }
+    layout->addWidget(system);
+    layout->addWidget(banUser);
+    layout->addWidget(issueDlc);
+    layout->addWidget(logoutButton);
+    layout->addStretch();
+    connect(admins, &QPushButton::clicked, this, &MainWindow::showAdminManagement);
+    connect(deleteUserButton, &QPushButton::clicked, this, &MainWindow::showAdminDeleteUser);
+    connect(system, &QPushButton::clicked, this, &MainWindow::showSystemSettings);
+    connect(banUser, &QPushButton::clicked, this, &MainWindow::showAdminBanUser);
+    connect(issueDlc, &QPushButton::clicked, this, &MainWindow::showIssueDlcKey);
+    connect(logoutButton, &QPushButton::clicked, this, &MainWindow::logout);
+    showDetailPage("管理员控制台", content, &MainWindow::showAdminDashboard);
+}
+
+void MainWindow::showAdminManagement()
+{
+    if (!isSuperAdminUser(currentUser))
+    {
+        QMessageBox::warning(this, "操作失败", "只有超级管理员可以管理管理员权限。");
+        showAdminDashboard();
+        return;
+    }
+    const QString filePath = QString::fromUtf8(GAME_DATA_DIRECTORY) + "/admins.dat";
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *username = new QLineEdit;
+    username->setPlaceholderText("输入已有普通账户用户名");
+    auto *addButton = makeButton("添加管理员");
+    auto *list = new QListWidget;
+    QFile input(filePath);
+    if (input.open(QIODevice::ReadOnly | QIODevice::Text))
+        while (!input.atEnd())
+        {
+            const QString name = QString::fromUtf8(input.readLine()).trimmed();
+            if (!name.isEmpty())
+            {
+                auto *item = new QListWidgetItem(displayNameForUser(name));
+                item->setData(Qt::UserRole, name);
+                list->addItem(item);
+            }
+        }
+    auto *removeButton = makeButton("删除选中的管理员");
+    auto *message = new QLabel;
+    message->setProperty("role", "hint");
+    layout->addWidget(username);
+    layout->addWidget(addButton);
+    layout->addWidget(new QLabel("管理员列表"));
+    layout->addWidget(list);
+    layout->addWidget(removeButton);
+    layout->addWidget(message);
+    connect(addButton, &QPushButton::clicked, content, [=]
+    {
+        const QString name = username->text().trimmed();
+        if (!auth_user_exists(USER_DATA_FILE, name.toUtf8().constData()))
+        {
+            message->setText("无此账户，无法添加。");
+            return;
+        }
+        if (isConfiguredAdmin(name))
+        {
+            message->setText("该账户已经是管理员。");
+            return;
+        }
+        if (accountStatus(name) == "banned")
+        {
+            message->setText("已封禁用户不能设置为管理员。");
+            return;
+        }
+        if (accountStatus(name) == "deleted")
+        {
+            message->setText("已注销用户不能设置为管理员。");
+            return;
+        }
+        QFile output(filePath);
+        if (output.open(QIODevice::Append | QIODevice::Text))
+        {
+            output.write(name.toUtf8() + "\n");
+            auto *item = new QListWidgetItem(displayNameForUser(name));
+            item->setData(Qt::UserRole, name);
+            list->addItem(item);
+            username->clear();
+            message->setText("管理员已添加。");
+        }
+    });
+    connect(removeButton, &QPushButton::clicked, content, [=]
+    {
+        if (list->currentItem() == nullptr)
+            return;
+        delete list->takeItem(list->currentRow());
+        QFile output(filePath);
+        if (output.open(QIODevice::WriteOnly | QIODevice::Text))
+            for (int index = 0; index < list->count(); ++index)
+                output.write(list->item(index)->data(Qt::UserRole).toString().toUtf8() + "\n");
+        message->setText("管理员权限已删除。");
+    });
+    showDetailPage("管理员管理", content, &MainWindow::showAdminDashboard);
+}
+
+void MainWindow::showAdminDeleteUser()
+{
+    if (!isSuperAdminUser(currentUser))
+    {
+        QMessageBox::warning(this, "操作失败", "只有超级管理员可以删除用户。");
+        showAdminDashboard();
+        return;
+    }
+
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *username = new QLineEdit;
+    username->setPlaceholderText("输入要删除的普通用户用户名");
+    auto *deleteButton = makeButton("删除用户");
+    auto *message = new QLabel;
+    message->setWordWrap(true);
+    message->setProperty("role", "hint");
+    layout->addWidget(username);
+    layout->addWidget(deleteButton);
+    layout->addWidget(message);
+    layout->addStretch();
+    connect(deleteButton, &QPushButton::clicked, content, [this, username, message]
+    {
+        const QString name = username->text().trimmed();
+        if (name.isEmpty())
+        {
+            message->setText("请输入要删除的用户名。");
+            return;
+        }
+        if (!auth_user_exists(USER_DATA_FILE, name.toUtf8().constData()))
+        {
+            message->setText("无此账户，无法删除。");
+            return;
+        }
+        if (isSuperAdminUser(name) || name == currentUser)
+        {
+            message->setText("不能删除当前管理员或超级管理员账号。");
+            return;
+        }
+        if (isConfiguredAdmin(name))
+        {
+            message->setText("管理员账号不能被删除，请先取消管理员权限后再操作。");
+            return;
+        }
+        if (QMessageBox::warning(
+                this, "删除用户",
+                QString("确定要删除用户 %1 吗？该用户将无法登录，但历史记录和排行榜展示将按已注销用户处理。")
+                    .arg(displayNameForUser(name)),
+                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+            return;
+        deleteUser(name);
+        if (accountStatus(name) == "deleted")
+        {
+            message->setText(QString("用户 %1 已删除。").arg(displayNameForUser(name)));
+            username->clear();
+        }
+        else
+        {
+            message->setText("删除失败，请检查数据文件。");
+        }
+    });
+    showDetailPage("删除用户", content, &MainWindow::showAdminDashboard);
+}
+
+void MainWindow::showAdminBanUser()
+{
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *username = new QLineEdit;
+    username->setPlaceholderText("输入要封禁或解封的用户名");
+    auto *status = new QLabel;
+    status->setProperty("role", "hint");
+    auto *banButton = makeButton("封禁用户");
+    auto *unbanButton = makeButton("解除封禁");
+    layout->addWidget(username);
+    layout->addWidget(status);
+    layout->addWidget(banButton);
+    layout->addWidget(unbanButton);
+    layout->addStretch();
+    auto apply = [this, username, status](const QString &value)
+    {
+        const QString name = username->text().trimmed();
+        if (!auth_user_exists(USER_DATA_FILE, name.toUtf8().constData()))
+        {
+            status->setText("无此账户。");
+            return;
+        }
+        if (name == currentUser)
+        {
+            status->setText("不能封禁当前登录账号。");
+            return;
+        }
+        if (isSuperAdminUser(name) || isConfiguredAdmin(name))
+        {
+            status->setText("管理员账号不能被封禁，请先取消管理员权限后再操作。");
+            return;
+        }
+        if (accountStatus(name) == "deleted")
+        {
+            status->setText("已注销用户不能封禁或解封。");
+            return;
+        }
+        if (value == "banned" && accountStatus(name) == "banned")
+        {
+            status->setText("该用户已被封禁。");
+            return;
+        }
+        setAccountStatus(name, value);
+        status->setText(value == "banned"
+                            ? QString("用户 %1 已封禁。").arg(displayNameForUser(name))
+                            : QString("用户 %1 已恢复正常。").arg(displayNameForUser(name)));
+    };
+    connect(banButton, &QPushButton::clicked, content, [apply] { apply("banned"); });
+    connect(unbanButton, &QPushButton::clicked, content, [apply] { apply("normal"); });
+    showDetailPage("封禁用户", content, &MainWindow::showAdminDashboard);
+}
+
+void MainWindow::showIssueDlcKey()
+{
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *form = new QFormLayout;
+    auto *username = new QLineEdit;
+    auto *mode = new QLineEdit;
+    username->setPlaceholderText("输入要绑定的用户名");
+    mode->setPlaceholderText("输入 DLC 模式 ID，例如 timed_300");
+    form->addRow("用户名", username);
+    form->addRow("DLC ID", mode);
+    auto *issue = makeButton("生成并发放 CD Key");
+    auto *message = new QLabel;
+    message->setWordWrap(true);
+    message->setProperty("role", "hint");
+    QStringList available;
+    for (int index = 0; index < game_mode_count(); ++index)
+    {
+        const GameModeDefinition *definition = game_mode_at(index);
+        if (definition != nullptr && QString::fromUtf8(definition->id) != "classic")
+            available.append(QString("%1（%2）")
+                                 .arg(QString::fromUtf8(definition->id),
+                                      QString::fromUtf8(definition->display_name)));
+    }
+    auto *availableLabel = new QLabel("可用 DLC：" + (available.isEmpty() ? QString("暂无") : available.join("、")));
+    availableLabel->setWordWrap(true);
+    availableLabel->setProperty("role", "hint");
+    layout->addLayout(form);
+    layout->addWidget(availableLabel);
+    layout->addWidget(issue);
+    layout->addWidget(message);
+    layout->addStretch();
+    connect(issue, &QPushButton::clicked, content, [this, username, mode, message]
+    {
+        QString key;
+        const QString name = username->text().trimmed();
+        const QString modeId = mode->text().trimmed();
+        if (!grantDlcKey(name, modeId, &key))
+        {
+            message->setText("发放失败：请确认用户存在、DLC ID 存在且不是经典模式。");
+            return;
+        }
+        message->setText(QString("已为 %1（UID：%2）发放 %3。\nCD Key：%4\n哈希已写入该用户目录。")
+                             .arg(displayNameForUser(name), userUid(name), modeDisplayName(modeId.toUtf8().constData()), key));
+    });
+    showDetailPage("发放 DLC CD Key", content, &MainWindow::showAdminDashboard);
+}
+
+void MainWindow::showSystemSettings()
+{
+    QSettings system(systemSettingsPath(), QSettings::IniFormat);
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    auto *form = new QFormLayout;
+    auto *renameHours = new QSpinBox;
+    renameHours->setRange(1, 720);
+    renameHours->setValue(system.value("usernameChangeCooldownHours",
+                                       USERNAME_CHANGE_COOLDOWN_HOURS).toInt());
+    auto *autoSave = new QSpinBox;
+    autoSave->setRange(0, 1000);
+    autoSave->setValue(system.value("defaultAutoSaveInterval", 50).toInt());
+    form->addRow("用户名修改冷却（小时）", renameHours);
+    form->addRow("新用户默认自动保存步数", autoSave);
+    auto *save = makeButton("保存系统设置");
+    layout->addLayout(form);
+    layout->addWidget(save);
+    layout->addStretch();
+    connect(save, &QPushButton::clicked, content, [=]
+    {
+        QSettings settings(systemSettingsPath(), QSettings::IniFormat);
+        settings.setValue("usernameChangeCooldownHours", renameHours->value());
+        settings.setValue("defaultAutoSaveInterval", autoSave->value());
+        settings.sync();
+        QMessageBox::information(this, "系统设置", "系统设置已保存。");
+        showAdminDashboard();
+    });
+    showDetailPage("系统设置", content, &MainWindow::showAdminDashboard);
+}
+
+int MainWindow::usernameCooldownSeconds() const
+{
+    QSettings system(systemSettingsPath(), QSettings::IniFormat);
+    return system.value("usernameChangeCooldownHours",
+                        USERNAME_CHANGE_COOLDOWN_HOURS).toInt() * 3600;
+}
+
+int MainWindow::defaultAutoSaveInterval() const
+{
+    QSettings system(systemSettingsPath(), QSettings::IniFormat);
+    return system.value("defaultAutoSaveInterval", 50).toInt();
 }
 
 void MainWindow::renderBoard()
@@ -1221,6 +1944,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::handleMove(BoardCommand command)
 {
+    if (isCurrentUserBanned())
+    {
+        gameMessage->setText("当前账号已被封禁，不能继续游戏。");
+        return;
+    }
     updateTimeLabel();
     if (boardWidget->isAnimating())
     {
@@ -1239,6 +1967,7 @@ void MainWindow::handleMove(BoardCommand command)
     }
     undoBoard = previous;
     canUndo = true;
+    hasUnsavedChanges = !guestMode;
     undoButton->setEnabled(false);
     updateGameInfo();
     boardWidget->animateMove(previous, board, command);
@@ -1283,7 +2012,7 @@ void MainWindow::finishGame(BoardStatus status)
                      board.step, board.elapsed_seconds, board.mode, guestMode ? 1 : 0);
     bool rankSaved = false;
     bool historySaved = false;
-    if (!guestMode)
+    if (!guestMode && accountStatus(currentUser) != "banned")
     {
         const QByteArray username = currentUser.toUtf8();
         const GameModeDefinition *mode = game_mode_find(board.mode);
@@ -1320,6 +2049,7 @@ void MainWindow::finishGame(BoardStatus status)
             .arg(board.step)
             .arg(formatTime(board.elapsed_seconds))
             .arg(recordText));
+    hasUnsavedChanges = false;
     showMenu();
 }
 
@@ -1333,7 +2063,7 @@ int MainWindow::currentElapsedSeconds() const
 int MainWindow::autoSaveInterval() const
 {
     QSettings settings(settingsFilePath(), QSettings::IniFormat);
-    return settings.value("autoSaveInterval", 50).toInt();
+    return settings.value("autoSaveInterval", defaultAutoSaveInterval()).toInt();
 }
 
 void MainWindow::loadKeyBindings()
@@ -1371,11 +2101,80 @@ QString MainWindow::userDirectoryPath() const
 QString MainWindow::userDirectoryForUsername(const QString &usernameText) const
 {
     const QString root = QString::fromUtf8(GAME_DATA_DIRECTORY) + "/Users";
+    const QString uid = userUid(usernameText);
+    if (!uid.isEmpty())
+        return root + "/" + uid;
     char encrypted[USER_NAME_LENGTH_MAX * 2 + 16] = {0};
     const QByteArray username = usernameText.toUtf8();
     if (!utils_xor_encrypt_to_hex(username.constData(), encrypted, sizeof(encrypted)))
         return root + "/invalid";
     return root + "/" + QString::fromLatin1(encrypted);
+}
+
+QString MainWindow::userUid(const QString &username) const
+{
+    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                       QSettings::IniFormat);
+    return accounts.value("users/" + username).toString();
+}
+
+QString MainWindow::ensureUserUid(const QString &username) const
+{
+    if (username.isEmpty() || username == "游客" || username == "Administrator")
+        return QString();
+    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                       QSettings::IniFormat);
+    QString uid = accounts.value("users/" + username).toString();
+    if (!uid.isEmpty())
+        return uid;
+
+    int next = accounts.value("meta/nextUid", 1).toInt();
+    QString candidate;
+    do
+    {
+        candidate = QString("%1").arg(next, 6, 10, QChar('0'));
+        ++next;
+    } while (QDir(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/Users/" + candidate).exists());
+    accounts.setValue("users/" + username, candidate);
+    accounts.setValue("status/" + username, "normal");
+    accounts.setValue("meta/nextUid", next);
+    accounts.sync();
+    return candidate;
+}
+
+QString MainWindow::accountStatus(const QString &username) const
+{
+    if (username == "Administrator")
+        return "admin";
+    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                       QSettings::IniFormat);
+    const QString stored = accounts.value("status/" + username, "normal").toString();
+    if (stored == "deleted" || stored == "banned")
+        return stored;
+    if (isConfiguredAdmin(username))
+        return "admin";
+    return stored;
+}
+
+QString MainWindow::accountStatusText(const QString &username, bool deleted) const
+{
+    if (deleted || accountStatus(username) == "deleted")
+        return "账户异常";
+    if (accountStatus(username) == "banned")
+        return "账户异常";
+    if (accountStatus(username) == "admin")
+        return "管理员";
+    return "正常";
+}
+
+void MainWindow::setAccountStatus(const QString &username, const QString &status) const
+{
+    if (username.isEmpty() || username == "Administrator")
+        return;
+    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                       QSettings::IniFormat);
+    accounts.setValue("status/" + username, status);
+    accounts.sync();
 }
 
 QString MainWindow::saveFilePath() const
@@ -1393,10 +2192,40 @@ QString MainWindow::profileFilePath() const
     return userDirectoryPath() + "/profile.ini";
 }
 
+QString MainWindow::modDirectoryPath() const
+{
+    return QString::fromUtf8(GAME_DATA_DIRECTORY) + "/DLC";
+}
+
+QString MainWindow::systemSettingsPath() const
+{
+    const QString path = QString::fromUtf8(GAME_DATA_DIRECTORY) + "/System";
+    QDir().mkpath(path);
+    return path + "/system.ini";
+}
+
 void MainWindow::migrateLegacyUserData()
 {
     if (guestMode || currentUser.isEmpty())
         return;
+    const QString uid = ensureUserUid(currentUser);
+    const QString root = QString::fromUtf8(GAME_DATA_DIRECTORY) + "/Users";
+    char encryptedName[USER_NAME_LENGTH_MAX * 2 + 16] = {0};
+    const QByteArray currentName = currentUser.toUtf8();
+    if (!uid.isEmpty() &&
+        utils_xor_encrypt_to_hex(currentName.constData(), encryptedName, sizeof(encryptedName)))
+    {
+        const QString legacyDirectory = root + "/" + QString::fromLatin1(encryptedName);
+        const QString uidDirectory = root + "/" + uid;
+        QDir().mkpath(uidDirectory);
+        if (legacyDirectory != uidDirectory && QDir(legacyDirectory).exists())
+        {
+            for (const QString &file : QDir(legacyDirectory).entryList(QDir::Files))
+                if (!QFile::exists(uidDirectory + "/" + file))
+                    (void)QFile::rename(legacyDirectory + "/" + file, uidDirectory + "/" + file);
+            (void)QDir(legacyDirectory).removeRecursively();
+        }
+    }
     const QByteArray username = currentUser.toUtf8();
     const QByteArray userSave = saveFilePath().toUtf8();
     Board legacyBoard = {};
@@ -1423,6 +2252,100 @@ void MainWindow::migrateLegacyUserData()
         (void)QFile::rename(legacySettings, settingsFilePath());
 }
 
+QStringList MainWindow::enabledModeIds() const
+{
+    QSettings settings(settingsFilePath(), QSettings::IniFormat);
+    QStringList result = {"classic"};
+    const QStringList authorized = authorizedDlcIds();
+    const QStringList enabled = settings.value("dlc/enabled").toStringList();
+    for (const QString &id : enabled)
+        if (authorized.contains(id) && game_mode_find(id.toUtf8().constData()) != nullptr &&
+            !result.contains(id))
+            result.append(id);
+    return result;
+}
+
+QStringList MainWindow::authorizedDlcIds() const
+{
+    if (guestMode || currentUser.isEmpty() || currentUser == "Administrator")
+        return {};
+    QSettings keys(userDirectoryPath() + "/dlc_keys.ini", QSettings::IniFormat);
+    QStringList result = keys.value("authorized/list").toStringList();
+    result.removeDuplicates();
+    return result;
+}
+
+bool MainWindow::isDlcAuthorized(const QString &modeId) const
+{
+    return modeId == "classic" || authorizedDlcIds().contains(modeId);
+}
+
+QString MainWindow::dlcKeyHash(const QString &key) const
+{
+    const QByteArray text = QString("2048GameDLC:%1").arg(key).toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex());
+}
+
+QString MainWindow::generateDlcKey(const QString &uid, const QString &modeId) const
+{
+    const QByteArray seed = QString("%1:%2:2048GameDLC").arg(uid, modeId).toUtf8();
+    return QString::fromLatin1(QCryptographicHash::hash(seed, QCryptographicHash::Sha256)
+                                   .toHex()
+                                   .left(16))
+        .toUpper();
+}
+
+bool MainWindow::grantDlcKey(const QString &username, const QString &modeId, QString *plainKey) const
+{
+    if (!auth_user_exists(USER_DATA_FILE, username.toUtf8().constData()) ||
+        game_mode_find(modeId.toUtf8().constData()) == nullptr ||
+        modeId == "classic")
+        return false;
+    const QString uid = ensureUserUid(username);
+    const QString key = generateDlcKey(uid, modeId);
+    QSettings keys(userDirectoryForUsername(username) + "/dlc_keys.ini", QSettings::IniFormat);
+    keys.setValue("issued/" + modeId, dlcKeyHash(key));
+    keys.setValue("meta/uid", uid);
+    keys.sync();
+    const QString keyDirectory = modDirectoryPath() + "/CDKeys";
+    QDir().mkpath(keyDirectory);
+    QSettings registry(keyDirectory + "/" + uid + "_" + modeId + ".ini", QSettings::IniFormat);
+    registry.setValue("uid", uid);
+    registry.setValue("mode", modeId);
+    registry.setValue("keyHash", dlcKeyHash(key));
+    registry.sync();
+    if (plainKey != nullptr)
+        *plainKey = key;
+    return true;
+}
+
+QString MainWindow::selectedModeId() const
+{
+    QSettings settings(settingsFilePath(), QSettings::IniFormat);
+    const QString selected = settings.value("dlc/current", "classic").toString();
+    return enabledModeIds().contains(selected) ? selected : QStringLiteral("classic");
+}
+
+void MainWindow::cycleGameMode()
+{
+    const QStringList modes = enabledModeIds();
+    const int current = modes.indexOf(selectedModeId());
+    const QString next = modes[(current + 1) % modes.size()];
+    QSettings settings(settingsFilePath(), QSettings::IniFormat);
+    settings.setValue("dlc/current", next);
+    settings.sync();
+    updateModeButton();
+}
+
+void MainWindow::updateModeButton()
+{
+    if (modeButton == nullptr)
+        return;
+    const QByteArray id = selectedModeId().toUtf8();
+    modeButton->setText(modeDisplayName(id.constData()));
+    modeButton->setVisible(enabledModeIds().size() > 1);
+}
+
 QString MainWindow::movementKeyText() const
 {
     const auto name = [](int key)
@@ -1435,8 +2358,9 @@ QString MainWindow::movementKeyText() const
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (gameActive && !guestMode && !currentUser.isEmpty())
+    if (gameActive && !guestMode && !currentUser.isEmpty() && hasUnsavedChanges)
         saveGame(false);
+    clearSessionPassword();
     QMainWindow::closeEvent(event);
 }
 
@@ -1459,6 +2383,63 @@ QString MainWindow::authMessage(int result) const
     default:
         return {};
     }
+}
+
+
+bool MainWindow::isSuperAdminUser(const QString &username) const
+{
+    return username == "Administrator";
+}
+
+bool MainWindow::isAdminUser(const QString &username) const
+{
+    return isSuperAdminUser(username) || isConfiguredAdmin(username);
+}
+
+bool MainWindow::isCurrentUserBanned() const
+{
+    return !guestMode && accountStatus(currentUser) == "banned";
+}
+
+bool MainWindow::canOpenAdminSettings() const
+{
+    if (guestMode)
+        return false;
+    const QString status = accountStatus(currentUser);
+    if (status == "banned" || status == "deleted")
+        return false;
+    return isAdminUser(currentUser);
+}
+
+QString MainWindow::displayNameForUser(const QString &username) const
+{
+    const QString status = accountStatus(username);
+    if (status == "deleted")
+        return QStringLiteral("（已注销）") + username;
+    if (status == "banned")
+        return QStringLiteral("（已封禁）") + username;
+    return username;
+}
+
+void MainWindow::deleteUser(const QString &username)
+{
+    if (username.isEmpty() || username == "Administrator")
+        return;
+    if (!auth_user_exists(USER_DATA_FILE, username.toUtf8().constData()))
+        return;
+    if (isConfiguredAdmin(username))
+        return;
+
+    const QByteArray userBytes = username.toUtf8();
+    const AuthResult result = auth_admin_delete_user(USER_DATA_FILE, userBytes.constData());
+    if (result != AUTH_OK)
+    {
+        QMessageBox::warning(this, "删除失败", authMessage(result));
+        return;
+    }
+    setAccountStatus(username, "deleted");
+    (void)rank_mark_deleted(SCORES_DATA_FILE, userBytes.constData());
+    APP_LOG_INFO_MSG("admin", "user deleted by admin: %s", userBytes.constData());
 }
 
 QString MainWindow::modeDisplayName(const char *mode) const

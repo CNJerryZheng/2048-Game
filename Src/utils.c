@@ -1,4 +1,4 @@
-#include "utils.h"
+﻿#include "utils.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -156,17 +156,17 @@ bool utils_is_valid_password(char character)
     return true;
 }
 
-bool utils_password_hash(const char *username, const char *password, uint32_t *hash1, uint32_t *hash2)
+bool utils_password_hash(const char *salt, const char *password, uint32_t *hash1, uint32_t *hash2)
 {
     uint32_t h1 = 0;
     uint32_t h2 = 0;
     size_t i;
 
-    if (username == NULL || password == NULL || hash1 == NULL || hash2 == NULL)
+    if (salt == NULL || password == NULL || hash1 == NULL || hash2 == NULL)
         return false;
 
-    for (i = 0; username[i] != '\0'; i = -~i)
-        utils_hash_update(&h1, &h2, (unsigned char)username[i]);
+    for (i = 0; salt[i] != '\0'; i = -~i)
+        utils_hash_update(&h1, &h2, (unsigned char)salt[i]);
 
     utils_hash_update(&h1, &h2, (unsigned char)':');
 

@@ -3,6 +3,8 @@
 #include <QElapsedTimer>
 #include <QMainWindow>
 #include <QString>
+#include <QStringList>
+#include <QByteArray>
 
 extern "C" {
 #include "board.h"
@@ -46,6 +48,7 @@ private:
     void saveGame(bool showMessage = true);
     void returnToMenu();
     void logout();
+    void clearSessionPassword();
     void undoMove();
     void restartGame();
     void showRanking();
@@ -58,6 +61,14 @@ private:
     void showClearHistory();
     void showDeleteAccount();
     void showSettings();
+    void showDlcManager();
+    void showAddDlcKey();
+    void showAdminDashboard();
+    void showAdminManagement();
+    void showAdminDeleteUser();
+    void showSystemSettings();
+    void showAdminBanUser();
+    void showIssueDlcKey();
     void showHelp();
     void showDetailPage(const QString &title, QWidget *content,
                         void (MainWindow::*backAction)() = nullptr);
@@ -69,16 +80,41 @@ private:
     void finishGame(BoardStatus status);
     int currentElapsedSeconds() const;
     int autoSaveInterval() const;
+    int defaultAutoSaveInterval() const;
     void loadKeyBindings();
     bool handleConfiguredKey(QKeyEvent *event);
     QString movementKeyText() const;
     QString settingsFilePath() const;
     QString userDirectoryPath() const;
     QString userDirectoryForUsername(const QString &username) const;
+    QString userUid(const QString &username) const;
+    QString ensureUserUid(const QString &username) const;
+    QString accountStatus(const QString &username) const;
+    QString accountStatusText(const QString &username, bool deleted = false) const;
+    void setAccountStatus(const QString &username, const QString &status) const;
     QString saveFilePath() const;
     QString historyFilePath() const;
     QString profileFilePath() const;
+    QString modDirectoryPath() const;
+    QString systemSettingsPath() const;
     void migrateLegacyUserData();
+    QStringList enabledModeIds() const;
+    QStringList authorizedDlcIds() const;
+    bool isDlcAuthorized(const QString &modeId) const;
+    QString dlcKeyHash(const QString &key) const;
+    QString generateDlcKey(const QString &uid, const QString &modeId) const;
+    bool grantDlcKey(const QString &username, const QString &modeId, QString *plainKey = nullptr) const;
+    QString selectedModeId() const;
+    void cycleGameMode();
+    void updateModeButton();
+    bool isConfiguredAdmin(const QString &username) const;
+    bool isSuperAdminUser(const QString &username) const;
+    bool isAdminUser(const QString &username) const;
+    bool isCurrentUserBanned() const;
+    bool canOpenAdminSettings() const;
+    QString displayNameForUser(const QString &username) const;
+    void deleteUser(const QString &username);
+    int usernameCooldownSeconds() const;
     QString authMessage(int result) const;
     QString modeDisplayName(const char *mode) const;
 
@@ -100,6 +136,7 @@ private:
     QPushButton *continueButton = nullptr;
     QPushButton *userCenterButton = nullptr;
     QPushButton *historyButton = nullptr;
+    QPushButton *modeButton = nullptr;
     QPushButton *saveButton = nullptr;
     QPushButton *undoButton = nullptr;
     QLabel *scoreLabel = nullptr;
@@ -111,11 +148,14 @@ private:
     QTimer *gameTimer = nullptr;
     QElapsedTimer sessionTimer;
     QString currentUser;
+    QByteArray sessionPassword;
     Board board = {};
     Board undoBoard = {};
     bool gameActive = false;
     bool guestMode = false;
+    bool adminMode = false;
     bool canUndo = false;
+    bool hasUnsavedChanges = false;
     bool hasQueuedMove = false;
     BoardCommand queuedMove = BOARD_CMD_UP;
     int moveUpKey = Qt::Key_W;

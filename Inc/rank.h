@@ -13,6 +13,7 @@ typedef struct RankEntry
     int elapsed_seconds;
     char mode[GAME_MODE_ID_LENGTH];
     bool deleted;
+    long long achieved_at;
 } RankEntry;
 
 int rank_load_scores(const char *scores_file,

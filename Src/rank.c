@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static void rank_sort(RankEntry *entries, int count);
 
@@ -20,9 +21,11 @@ static bool rank_parse_line(const char *line, RankEntry *entry)
         !utils_xor_decrypt_from_hex(encrypted, plain, sizeof(plain)))
         return false;
 
-    matched = sscanf(plain, "%d|%d|%d|%d|%31[^|]|%d",
+    entry->achieved_at = 0;
+    matched = sscanf(plain, "%d|%d|%d|%d|%31[^|]|%d|%lld",
                      &entry->score, &entry->max_tile, &entry->steps,
-                     &entry->elapsed_seconds, entry->mode, &deleted);
+                     &entry->elapsed_seconds, entry->mode, &deleted,
+                     &entry->achieved_at);
     entry->deleted = deleted != 0;
     if (matched >= 5)
         return entry->score >= 0;
@@ -40,9 +43,10 @@ static bool rank_write_entry(FILE *file, const RankEntry *entry)
     char plain[256];
     char encrypted[512];
 
-    if (snprintf(plain, sizeof(plain), "%d|%d|%d|%d|%s|%d",
+    if (snprintf(plain, sizeof(plain), "%d|%d|%d|%d|%s|%d|%lld",
                  entry->score, entry->max_tile, entry->steps,
-                 entry->elapsed_seconds, entry->mode, entry->deleted ? 1 : 0) < 0 ||
+                 entry->elapsed_seconds, entry->mode, entry->deleted ? 1 : 0,
+                 entry->achieved_at) < 0 ||
         !utils_xor_encrypt_to_hex(plain, encrypted, sizeof(encrypted)))
         return false;
     return fprintf(file, "%s\t%s\n", entry->username, encrypted) >= 0;
@@ -154,13 +158,15 @@ bool rank_save_score(const char *scores_file,
     for (index = 0; index < count; index = -~index)
     {
         RankEntry candidate;
-        if (!utils_string_equal(entries[index].username, username))
+        if (!utils_string_equal(entries[index].username, username) ||
+            !utils_string_equal(entries[index].mode, mode))
             continue;
         candidate = entries[index];
         candidate.score = score;
         candidate.max_tile = max_tile;
         candidate.steps = steps;
         candidate.elapsed_seconds = elapsed_seconds;
+        candidate.achieved_at = (long long)time(NULL);
         utils_copy_string(candidate.mode, mode, sizeof(candidate.mode));
         if (!rank_is_better(&candidate, &entries[index]))
             return true;
@@ -176,6 +182,8 @@ bool rank_save_score(const char *scores_file,
         candidate.max_tile = max_tile;
         candidate.steps = steps;
         candidate.elapsed_seconds = elapsed_seconds;
+        candidate.achieved_at = (long long)time(NULL);
+        utils_copy_string(candidate.mode, mode, sizeof(candidate.mode));
         if (!rank_is_better(&candidate, &entries[count - 1]))
             return true;
         index = count - 1;
@@ -190,6 +198,7 @@ bool rank_save_score(const char *scores_file,
     entries[index].steps = steps;
     entries[index].elapsed_seconds = elapsed_seconds;
     entries[index].deleted = false;
+    entries[index].achieved_at = (long long)time(NULL);
     utils_copy_string(entries[index].mode, mode, sizeof(entries[index].mode));
     rank_move_up(entries, index);
     return rank_write_all(scores_file, entries, count);

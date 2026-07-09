@@ -5,7 +5,9 @@ param(
 $ErrorActionPreference = "Stop"
 $data = [System.IO.Path]::GetFullPath($DataDirectory)
 $usersRoot = Join-Path $data "Users"
+$modsRoot = Join-Path $data "DLC"
 New-Item -ItemType Directory -Force -Path $usersRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $modsRoot | Out-Null
 
 $xorKey = [Text.Encoding]::UTF8.GetBytes("2048GameRankKey")
 function Write-Utf8NoBom([string]$Path, [object[]]$Lines) {
@@ -21,10 +23,10 @@ function ConvertTo-XorHex([string]$Text) {
     $result.ToString()
 }
 
-function Get-PasswordHash([string]$Password) {
+function Get-PasswordHash([string]$Username, [string]$Password) {
     [uint64]$h1 = 0
     [uint64]$h2 = 0
-    foreach ($byte in [Text.Encoding]::UTF8.GetBytes("2048Game:$Password")) {
+    foreach ($byte in [Text.Encoding]::UTF8.GetBytes("${Username}:$Password")) {
         $h1 = (($h1 * 131) + $byte) % 1000000007
         $h2 = (($h2 * 13331) + $byte) % 1000000009
     }
@@ -41,23 +43,32 @@ $samples = @(
 
 $userFile = Join-Path $data "user.dat"
 $scoreFile = Join-Path $data "scores.dat"
+$accountsFile = Join-Path $data "accounts.ini"
 $sampleNames = @($samples | ForEach-Object Name)
 $existingUsers = if (Test-Path $userFile) { @(Get-Content -LiteralPath $userFile -Encoding UTF8 | ForEach-Object { $_.TrimStart([char]0xFEFF) }) } else { @() }
 $existingScores = if (Test-Path $scoreFile) { @(Get-Content -LiteralPath $scoreFile -Encoding UTF8 | ForEach-Object { $_.TrimStart([char]0xFEFF) }) } else { @() }
 $existingUsers = @($existingUsers | Where-Object { $sampleNames -notcontains (($_ -split "`t")[0]) })
 $existingScores = @($existingScores | Where-Object { $sampleNames -notcontains (($_ -split "`t")[0]) })
 
-$hashes = Get-PasswordHash $password
+$sampleIndex = 0
+$accountLines = @("[users]")
 foreach ($sample in $samples) {
+    $uid = "{0:D6}" -f ($sampleIndex + 1)
+    $accountLines += "$($sample.Name)=$uid"
     if ($sample.Deleted -eq 0) {
-        $existingUsers += "$($sample.Name)`t$($hashes[0])`t$($hashes[1])"
+        $sampleHashes = Get-PasswordHash $sample.Name $password
+        $existingUsers += "$($sample.Name)`t$($sampleHashes[0])`t$($sampleHashes[1])"
     }
-    $rankPlain = "$($sample.Score)|$($sample.Tile)|$($sample.Steps)|$($sample.Seconds)|classic|$($sample.Deleted)"
+    $achieved = [DateTimeOffset]::UtcNow.AddMinutes(-($sampleIndex + 1)).ToUnixTimeSeconds()
+    $rankPlain = "$($sample.Score)|$($sample.Tile)|$($sample.Steps)|$($sample.Seconds)|classic|$($sample.Deleted)|$achieved"
     $existingScores += "$($sample.Name)`t$(ConvertTo-XorHex $rankPlain)"
 
-    $folder = Join-Path $usersRoot (ConvertTo-XorHex $sample.Name)
+    $folder = Join-Path $usersRoot $uid
     if (Test-Path $folder) { Remove-Item -LiteralPath $folder -Recurse -Force }
-    if ($sample.Deleted -eq 1) { continue }
+    if ($sample.Deleted -eq 1) {
+        $sampleIndex++
+        continue
+    }
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
     $profile = @(
         "[General]",
@@ -76,9 +87,37 @@ foreach ($sample in $samples) {
         $history += "$($sample.Name)`t$(ConvertTo-XorHex $plain)"
     }
     Write-Utf8NoBom (Join-Path $folder "history.dat") $history
+    $sampleIndex++
 }
+$accountLines += ""
+$accountLines += "[status]"
+foreach ($sample in $samples) {
+    $accountLines += "$($sample.Name)=$(if ($sample.Deleted -eq 1) { 'deleted' } else { 'normal' })"
+}
+$accountLines += ""
+$accountLines += "[meta]"
+$accountLines += ("nextUid={0}" -f ($samples.Count + 1))
 
 Write-Utf8NoBom $userFile $existingUsers
 Write-Utf8NoBom $scoreFile $existingScores
+Write-Utf8NoBom $accountsFile $accountLines
+Write-Utf8NoBom (Join-Path $modsRoot "timed_300.json") @(
+    "{",
+    '  "type": "mode",',
+    '  "id": "timed_300",',
+    '  "name": "限时模式",',
+    '  "timeLimitSeconds": 300,',
+    '  "rankingEnabled": true',
+    "}"
+)
+Write-Utf8NoBom (Join-Path $modsRoot "step_500.json") @(
+    "{",
+    '  "type": "mode",',
+    '  "id": "step_500",',
+    '  "name": "计步模式",',
+    '  "stepLimit": 500,',
+    '  "rankingEnabled": true',
+    "}"
+)
 Write-Host "Test users created in: $data" -ForegroundColor Green
 Write-Host "Password for active test users: $password" -ForegroundColor Yellow

@@ -34,7 +34,7 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path -LiteralPath $PackageDirectory) {
     Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
 }
-New-Item -ItemType Directory -Path (Join-Path $PackageDirectory "Data\Mods") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $PackageDirectory "Data\DLC") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $BuildDirectory "bin\2048_game_qt.exe") -Destination $PackageDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $PackageDirectory
 
