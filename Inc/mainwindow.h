@@ -88,6 +88,7 @@ private:
     QString userDirectoryPath() const;
     QString userDirectoryForUsername(const QString &username) const;
     QString userUid(const QString &username) const;
+    QString usernameForUid(const QString &uid) const;
     QString ensureUserUid(const QString &username) const;
     QString accountStatus(const QString &username) const;
     QString accountStatusText(const QString &username, bool deleted = false) const;
@@ -100,10 +101,16 @@ private:
     void migrateLegacyUserData();
     QStringList enabledModeIds() const;
     QStringList authorizedDlcIds() const;
+    QStringList activatedDlcIds() const;
     bool isDlcAuthorized(const QString &modeId) const;
-    QString dlcKeyHash(const QString &key) const;
+    bool isDlcActivated(const QString &modeId) const;
+    QString dlcDirectoryPath(const QString &uid) const;
+    QString dlcFilePath(const QString &uid, const QString &modeId) const;
+    QString dlcIssuedListPath() const;
+    QString dlcKeyHash(const QString &dlcName, const QString &uid, const QString &key) const;
     QString generateDlcKey(const QString &uid, const QString &modeId) const;
     bool grantDlcKey(const QString &username, const QString &modeId, QString *plainKey = nullptr) const;
+    bool activateDlcKey(const QString &uid, const QString &modeId, const QString &dlcName, const QString &plainKey) const;
     QString selectedModeId() const;
     void cycleGameMode();
     void updateModeButton();

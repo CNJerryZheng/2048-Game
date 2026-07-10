@@ -18,6 +18,7 @@ extern "C"
 
 #include <QByteArray>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCryptographicHash>
@@ -32,6 +33,9 @@ extern "C"
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
 #include <QLabel>
@@ -49,6 +53,8 @@ extern "C"
 #include <QVBoxLayout>
 #include <QVector>
 #include <QUrl>
+#include <QFileInfo>
+#include <algorithm>
 
 using WidgetHelpers::formatTime;
 using WidgetHelpers::makeButton;
@@ -803,7 +809,7 @@ void MainWindow::showPublicProfile(const QString &username)
                                              : displayNameForUser(username);
     form->addRow("用户名", new QLabel(shownName));
     form->addRow("用户 UID", new QLabel(record.deleted ? "账户异常，无法显示"
-                                                   : userUid(username)));
+                                                       : userUid(username)));
     form->addRow("历史排名", new QLabel(QString("第 %1 名").arg(rank)));
     form->addRow("历史最高分", new QLabel(QString::number(record.score)));
     form->addRow("历史最大方块", new QLabel(QString::number(record.max_tile)));
@@ -821,7 +827,8 @@ void MainWindow::showPublicProfile(const QString &username)
                           QSettings::IniFormat);
         form->addRow("邮箱地址", new QLabel(profile.value("email", "未设置").toString()));
         auto *biography = new QLabel(profile.value(
-            "biography", "这个人很懒，什么都没有留下").toString());
+                                                "biography", "这个人很懒，什么都没有留下")
+                                         .toString());
         biography->setWordWrap(true);
         form->addRow("个人简介", biography);
         form->addRow("账户状态", new QLabel(accountStatusText(username, false)));
@@ -874,7 +881,8 @@ void MainWindow::showUserCenter()
     QSettings profile(profileFilePath(), QSettings::IniFormat);
     const QString email = profile.value("email", "未设置").toString();
     const QString biography = profile.value(
-        "biography", "这个人很懒，什么都没有留下").toString();
+                                         "biography", "这个人很懒，什么都没有留下")
+                                  .toString();
     RankEntry entries[RANK_ENTRIES_MAX];
     const int count = rank_load_scores(SCORES_DATA_FILE, entries, RANK_ENTRIES_MAX);
     int rank = -1;
@@ -929,7 +937,8 @@ void MainWindow::showEditProfile()
     auto *username = new QLineEdit(currentUser);
     auto *email = new QLineEdit(profile.value("email").toString());
     auto *biography = new QTextEdit(profile.value(
-        "biography", "这个人很懒，什么都没有留下").toString());
+                                               "biography", "这个人很懒，什么都没有留下")
+                                        .toString());
     biography->setMaximumHeight(120);
     form->addRow("用户名", username);
     form->addRow("邮箱地址", email);
@@ -975,18 +984,18 @@ void MainWindow::showEditProfile()
                         return;
                     const QByteArray oldUser = oldName.toUtf8();
                     const QByteArray newUser = newName.toUtf8();
-                if (sessionPassword.isEmpty())
-                {
-                    message->setText(u8"当前登录会话缺少密码缓存，请退出后重新登录再修改用户名。");
-                    return;
-                }
-                const AuthResult result = auth_rename_user(
-                    USER_DATA_FILE, oldUser.constData(), newUser.constData(), sessionPassword.constData());
-                if (result != AUTH_OK)
-                {
-                    message->setText(authMessage(result));
-                    return;
-                }
+                    if (sessionPassword.isEmpty())
+                    {
+                        message->setText(u8"当前登录会话缺少密码缓存，请退出后重新登录再修改用户名。");
+                        return;
+                    }
+                    const AuthResult result = auth_rename_user(
+                        USER_DATA_FILE, oldUser.constData(), newUser.constData(), sessionPassword.constData());
+                    if (result != AUTH_OK)
+                    {
+                        message->setText(authMessage(result));
+                        return;
+                    }
                     QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
                                        QSettings::IniFormat);
                     const QString uid = accounts.value("users/" + oldName).toString();
@@ -1014,8 +1023,8 @@ void MainWindow::showEditProfile()
                 QSettings updated(profileFilePath(), QSettings::IniFormat);
                 updated.setValue("email", email->text().trimmed());
                 updated.setValue("biography", biography->toPlainText().trimmed().isEmpty()
-                                                   ? "这个人很懒，什么都没有留下"
-                                                   : biography->toPlainText().trimmed());
+                                                  ? "这个人很懒，什么都没有留下"
+                                                  : biography->toPlainText().trimmed());
                 if (newName != oldName && !isConfiguredAdmin(newName))
                     updated.setValue("lastUsernameChange", QDateTime::currentSecsSinceEpoch());
                 updated.sync();
@@ -1201,7 +1210,7 @@ void MainWindow::showClearHistory()
     layout->addWidget(clearButton);
     layout->addStretch();
     connect(clearButton, &QPushButton::clicked, content, [this, password, message]
-    {
+            {
         const QByteArray user = currentUser.toUtf8();
         const QByteArray pass = password->text().toUtf8();
         const AuthResult result = auth_login_user(USER_DATA_FILE, user.constData(), pass.constData());
@@ -1222,8 +1231,7 @@ void MainWindow::showClearHistory()
             return;
         }
         message->setText("清理失败，请查看日志。");
-        password->clear();
-    });
+        password->clear(); });
     showDetailPage("清理历史数据", content, &MainWindow::showAccountSettings);
 }
 
@@ -1248,7 +1256,7 @@ void MainWindow::showDeleteAccount()
     layout->addWidget(deleteButton);
     layout->addStretch();
     connect(deleteButton, &QPushButton::clicked, content, [this, password, message]
-    {
+            {
         const QByteArray user = currentUser.toUtf8();
         const QByteArray firstPassword = password->text().toUtf8();
         const AuthResult verified = auth_login_user(USER_DATA_FILE, user.constData(), firstPassword.constData());
@@ -1284,8 +1292,7 @@ void MainWindow::showDeleteAccount()
         (void)rank_mark_deleted(SCORES_DATA_FILE, user.constData());
         (void)QDir(directory).removeRecursively();
         QMessageBox::information(this, "注销账号", "账号已永久注销。");
-        logout();
-    });
+        logout(); });
     showDetailPage("注销账号", content, &MainWindow::showAccountSettings);
 }
 
@@ -1393,15 +1400,18 @@ void MainWindow::showSettings()
 
 void MainWindow::showDlcManager()
 {
-    QSettings settings(settingsFilePath(), QSettings::IniFormat);
-    const QStringList enabledBefore = settings.value("dlc/enabled").toStringList();
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
-    auto *description = new QLabel("已授权 DLC 可以勾选加载；未授权 DLC 需要先添加 CD Key。");
+    const QString uid = currentUser.isEmpty() ? QString() : userUid(currentUser);
+    auto *description = new QLabel(
+        uid.isEmpty()
+            ? "已激活 DLC 可以勾选加载；未激活 DLC 需要先输入 CD Key。"
+            : QString("当前账号 UID：%1\n已激活 DLC 可以勾选加载；未激活 DLC 需要先输入 CD Key。")
+                  .arg(uid));
     description->setProperty("role", "hint");
+    description->setWordWrap(true);
     layout->addWidget(description);
     QList<QPair<QString, QCheckBox *>> choices;
-    const QStringList authorized = authorizedDlcIds();
     for (int index = 0; index < game_mode_count(); ++index)
     {
         const GameModeDefinition *mode = game_mode_at(index);
@@ -1410,9 +1420,9 @@ void MainWindow::showDlcManager()
         const QString id = QString::fromUtf8(mode->id);
         auto *check = new QCheckBox(QString("%1%2")
                                         .arg(QString::fromUtf8(mode->display_name))
-                                        .arg(authorized.contains(id) ? "" : "（未授权）"));
-        check->setEnabled(authorized.contains(id));
-        check->setChecked(authorized.contains(id) && enabledBefore.contains(id));
+                                        .arg(isDlcActivated(id) ? "" : "（未激活）"));
+        check->setEnabled(isDlcActivated(id));
+        check->setChecked(isDlcActivated(id));
         choices.append({id, check});
         layout->addWidget(check);
     }
@@ -1425,8 +1435,8 @@ void MainWindow::showDlcManager()
     layout->addWidget(saveButton);
     layout->addStretch();
     connect(addKeyButton, &QPushButton::clicked, this, &MainWindow::showAddDlcKey);
-    connect(saveButton, &QPushButton::clicked, content, [this, choices, enabledBefore]
-    {
+    connect(saveButton, &QPushButton::clicked, content, [this, choices]
+            {
         QStringList enabled;
         for (const auto &choice : choices)
             if (choice.second->isEnabled() && choice.second->isChecked())
@@ -1436,71 +1446,79 @@ void MainWindow::showDlcManager()
         if (!enabledModeIds().contains(settings.value("dlc/current", "classic").toString()))
             settings.setValue("dlc/current", "classic");
         settings.sync();
-        QStringList loaded;
-        QStringList unloaded;
-        for (const QString &id : enabled)
-            if (!enabledBefore.contains(id))
-                loaded.append(modeDisplayName(id.toUtf8().constData()));
-        for (const QString &id : enabledBefore)
-            if (!enabled.contains(id))
-                unloaded.append(modeDisplayName(id.toUtf8().constData()));
-        QStringList messages;
-        if (!loaded.isEmpty()) messages.append(QString("加载 %1 成功").arg(loaded.join("、")));
-        if (!unloaded.isEmpty()) messages.append(QString("卸载 %1 成功").arg(unloaded.join("、")));
-        if (messages.isEmpty()) messages.append("DLC 配置没有变化");
-        QMessageBox::information(this, "DLC 管理", messages.join("\n"));
+        QMessageBox::information(this, "DLC 管理", enabled.isEmpty() ? "没有可用的已激活 DLC。" : "DLC 配置已更新。");
         updateModeButton();
-        showSettings();
-    });
+        showSettings(); });
     showDetailPage("DLC 管理", content, &MainWindow::showSettings);
 }
 
 void MainWindow::showAddDlcKey()
 {
+    if (guestMode || currentUser.isEmpty())
+    {
+        QMessageBox::warning(this, "无法激活", "请先使用普通账号登录后再激活 DLC。");
+        showSettings();
+        return;
+    }
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
+    auto *dlcName = new QLineEdit;
     auto *key = new QLineEdit;
-    key->setPlaceholderText("请输入管理员发放的16位 CD Key");
+    const QString uid = userUid(currentUser);
+    auto *uidLabel = new QLabel(QString("当前账号 UID：%1").arg(uid.isEmpty() ? "未分配" : uid));
+    uidLabel->setProperty("role", "hint");
+    dlcName->setPlaceholderText("请输入 DLC 名称或模式 ID");
+    key->setPlaceholderText("请输入管理员发放的 CD Key");
     auto *message = new QLabel;
     message->setProperty("role", "hint");
     auto *verify = makeButton("验证并添加");
+    layout->addWidget(uidLabel);
+    layout->addWidget(dlcName);
     layout->addWidget(key);
     layout->addWidget(message);
     layout->addWidget(verify);
     layout->addStretch();
-    connect(verify, &QPushButton::clicked, content, [this, key, message]
-    {
+    connect(verify, &QPushButton::clicked, content, [this, uid, dlcName, key, message]
+            {
         const QString input = key->text().trimmed().toUpper();
-        if (input.size() != 16)
+        const QString dlcText = dlcName->text().trimmed();
+        if (uid.isEmpty() || dlcText.isEmpty() || input.isEmpty())
         {
-            message->setText("CD Key 必须是16位。");
+            message->setText("请填写 DLC 名称和 CD Key。");
             return;
         }
-        QSettings keys(userDirectoryPath() + "/dlc_keys.ini", QSettings::IniFormat);
-        QStringList authorized = keys.value("authorized/list").toStringList();
-        for (int index = 0; index < game_mode_count(); ++index)
+        QDir().mkpath(dlcDirectoryPath(uid));
+        const QFileInfoList files = QDir(dlcDirectoryPath(uid))
+                                        .entryInfoList(QStringList() << "*.DLC", QDir::Files, QDir::Time);
+        QString storedName;
+        QString dlcId;
+        for (const QFileInfo &fileInfo : files)
         {
-            const GameModeDefinition *mode = game_mode_at(index);
-            if (mode == nullptr || QString::fromUtf8(mode->id) == "classic")
-                continue;
-            const QString id = QString::fromUtf8(mode->id);
-            const QString hash = dlcKeyHash(input);
-            QSettings registry(modDirectoryPath() + "/CDKeys/" + userUid(currentUser) + "_" + id + ".ini",
-                               QSettings::IniFormat);
-            if (keys.value("issued/" + id).toString() == hash ||
-                registry.value("keyHash").toString() == hash)
+            QSettings registry(fileInfo.absoluteFilePath(), QSettings::IniFormat);
+            const QString candidateName = registry.value("dlc_name").toString();
+            const QString candidateId = registry.value("dlc_id").toString();
+            if (candidateName == dlcText || candidateId == dlcText)
             {
-                if (!authorized.contains(id))
-                    authorized.append(id);
-                keys.setValue("authorized/list", authorized);
-                keys.sync();
-                QMessageBox::information(this, "DLC", QString("%1 授权成功。").arg(modeDisplayName(mode->id)));
-                showDlcManager();
-                return;
+                storedName = candidateName;
+                dlcId = candidateId;
+                break;
             }
         }
-        message->setText("CD Key 无效，或并未发放给当前用户。");
-    });
+        if (storedName.isEmpty() || dlcId.isEmpty())
+        {
+            message->setText("未找到对应的 DLC 授权文件。");
+            return;
+        }
+        if (!activateDlcKey(uid, dlcId, storedName, input))
+        {
+            message->setText("CD Key 无效，或与当前 UID / DLC 不匹配。");
+            return;
+        }
+        const QString info = QString("%1 激活成功。状态已更新为 activated。")
+                                 .arg(modeDisplayName(dlcId.toUtf8().constData()));
+        message->setText(info);
+        QMessageBox::information(this, "DLC 激活成功", info);
+        showDlcManager(); });
     showDetailPage("添加 DLC CD Key", content, &MainWindow::showDlcManager);
 }
 
@@ -1613,7 +1631,7 @@ void MainWindow::showAdminManagement()
     layout->addWidget(removeButton);
     layout->addWidget(message);
     connect(addButton, &QPushButton::clicked, content, [=]
-    {
+            {
         const QString name = username->text().trimmed();
         if (!auth_user_exists(USER_DATA_FILE, name.toUtf8().constData()))
         {
@@ -1644,10 +1662,9 @@ void MainWindow::showAdminManagement()
             list->addItem(item);
             username->clear();
             message->setText("管理员已添加。");
-        }
-    });
+        } });
     connect(removeButton, &QPushButton::clicked, content, [=]
-    {
+            {
         if (list->currentItem() == nullptr)
             return;
         delete list->takeItem(list->currentRow());
@@ -1655,8 +1672,7 @@ void MainWindow::showAdminManagement()
         if (output.open(QIODevice::WriteOnly | QIODevice::Text))
             for (int index = 0; index < list->count(); ++index)
                 output.write(list->item(index)->data(Qt::UserRole).toString().toUtf8() + "\n");
-        message->setText("管理员权限已删除。");
-    });
+        message->setText("管理员权限已删除。"); });
     showDetailPage("管理员管理", content, &MainWindow::showAdminDashboard);
 }
 
@@ -1682,7 +1698,7 @@ void MainWindow::showAdminDeleteUser()
     layout->addWidget(message);
     layout->addStretch();
     connect(deleteButton, &QPushButton::clicked, content, [this, username, message]
-    {
+            {
         const QString name = username->text().trimmed();
         if (name.isEmpty())
         {
@@ -1719,8 +1735,7 @@ void MainWindow::showAdminDeleteUser()
         else
         {
             message->setText("删除失败，请检查数据文件。");
-        }
-    });
+        } });
     showDetailPage("删除用户", content, &MainWindow::showAdminDashboard);
 }
 
@@ -1772,8 +1787,10 @@ void MainWindow::showAdminBanUser()
                             ? QString("用户 %1 已封禁。").arg(displayNameForUser(name))
                             : QString("用户 %1 已恢复正常。").arg(displayNameForUser(name)));
     };
-    connect(banButton, &QPushButton::clicked, content, [apply] { apply("banned"); });
-    connect(unbanButton, &QPushButton::clicked, content, [apply] { apply("normal"); });
+    connect(banButton, &QPushButton::clicked, content, [apply]
+            { apply("banned"); });
+    connect(unbanButton, &QPushButton::clicked, content, [apply]
+            { apply("normal"); });
     showDetailPage("封禁用户", content, &MainWindow::showAdminDashboard);
 }
 
@@ -1784,10 +1801,10 @@ void MainWindow::showIssueDlcKey()
     auto *form = new QFormLayout;
     auto *username = new QLineEdit;
     auto *mode = new QLineEdit;
-    username->setPlaceholderText("输入要绑定的用户名");
-    mode->setPlaceholderText("输入 DLC 模式 ID，例如 timed_300");
-    form->addRow("用户名", username);
-    form->addRow("DLC ID", mode);
+    username->setPlaceholderText("输入目标用户用户名");
+    mode->setPlaceholderText("输入 DLC 名称或模式 ID，例如 限时模式 / timed_300");
+    form->addRow("目标用户名", username);
+    form->addRow("DLC 名称 / ID", mode);
     auto *issue = makeButton("生成并发放 CD Key");
     auto *message = new QLabel;
     message->setWordWrap(true);
@@ -1804,24 +1821,100 @@ void MainWindow::showIssueDlcKey()
     auto *availableLabel = new QLabel("可用 DLC：" + (available.isEmpty() ? QString("暂无") : available.join("、")));
     availableLabel->setWordWrap(true);
     availableLabel->setProperty("role", "hint");
+    auto *issuedTitle = new QLabel("已发放 CD Key 列表");
+    issuedTitle->setStyleSheet("font-size:16px;font-weight:700;");
+    auto *issuedTable = new QTableWidget;
+    issuedTable->setColumnCount(5);
+    issuedTable->setHorizontalHeaderLabels({"发放时间", "CD Key", "UID", "DLC 名称", "状态"});
+    issuedTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    issuedTable->verticalHeader()->setVisible(false);
+    issuedTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    issuedTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    issuedTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    issuedTable->setAlternatingRowColors(true);
+    auto *copyKeyButton = makeButton("复制选中 CD Key");
+    copyKeyButton->setEnabled(false);
+    QVector<QJsonObject> issuedItems;
+    QFile issuedFile(dlcIssuedListPath());
+    if (issuedFile.open(QIODevice::ReadOnly))
+    {
+        const QJsonDocument doc = QJsonDocument::fromJson(issuedFile.readAll());
+        issuedFile.close();
+        for (const QJsonValue &value : doc.array())
+            if (value.isObject())
+                issuedItems.append(value.toObject());
+    }
+    std::sort(issuedItems.begin(), issuedItems.end(), [](const QJsonObject &left, const QJsonObject &right)
+              { return left.value("issued_at").toVariant().toLongLong() >
+                       right.value("issued_at").toVariant().toLongLong(); });
+    issuedTable->setRowCount(issuedItems.size());
+    for (int row = 0; row < issuedItems.size(); ++row)
+    {
+        const QJsonObject item = issuedItems[row];
+        const qint64 issuedAt = item.value("issued_at").toVariant().toLongLong();
+        const QString issuedText = issuedAt > 0
+                                       ? QDateTime::fromSecsSinceEpoch(issuedAt).toString("yyyy-MM-dd HH:mm:ss")
+                                       : "-";
+        issuedTable->setItem(row, 0, new QTableWidgetItem(issuedText));
+        issuedTable->setItem(row, 1, new QTableWidgetItem(item.value("plain_key").toString()));
+        issuedTable->setItem(row, 2, new QTableWidgetItem(item.value("uid").toString()));
+        issuedTable->setItem(row, 3, new QTableWidgetItem(item.value("dlc_name").toString()));
+        issuedTable->setItem(row, 4, new QTableWidgetItem(item.value("status").toString()));
+    }
     layout->addLayout(form);
     layout->addWidget(availableLabel);
     layout->addWidget(issue);
     layout->addWidget(message);
+    layout->addWidget(issuedTitle);
+    layout->addWidget(issuedTable);
+    layout->addWidget(copyKeyButton);
     layout->addStretch();
+    connect(issuedTable, &QTableWidget::itemSelectionChanged, content, [issuedTable, copyKeyButton]
+            {
+        copyKeyButton->setEnabled(issuedTable->currentRow() >= 0); });
+    connect(copyKeyButton, &QPushButton::clicked, content, [issuedTable, message]
+            {
+        const int row = issuedTable->currentRow();
+        if (row < 0 || issuedTable->item(row, 1) == nullptr)
+            return;
+        const QString key = issuedTable->item(row, 1)->text();
+        QApplication::clipboard()->setText(key);
+        message->setText(QString("已复制 CD Key：%1").arg(key)); });
     connect(issue, &QPushButton::clicked, content, [this, username, mode, message]
-    {
+            {
         QString key;
-        const QString name = username->text().trimmed();
-        const QString modeId = mode->text().trimmed();
-        if (!grantDlcKey(name, modeId, &key))
+        const QString usernameText = username->text().trimmed();
+        QString modeText = mode->text().trimmed();
+        QString modeId = modeText;
+        const GameModeDefinition *definition = game_mode_find(modeId.toUtf8().constData());
+        if (definition == nullptr)
         {
-            message->setText("发放失败：请确认用户存在、DLC ID 存在且不是经典模式。");
+            for (int index = 0; index < game_mode_count(); ++index)
+            {
+                const GameModeDefinition *candidate = game_mode_at(index);
+                if (candidate != nullptr && QString::fromUtf8(candidate->display_name) == modeText)
+                {
+                    modeId = QString::fromUtf8(candidate->id);
+                    definition = candidate;
+                    break;
+                }
+            }
+        }
+        if (definition == nullptr || !grantDlcKey(usernameText, modeId, &key))
+        {
+            message->setText("发放失败：请确认用户名存在、DLC 名称 / ID 正确且不是经典模式。");
             return;
         }
-        message->setText(QString("已为 %1（UID：%2）发放 %3。\nCD Key：%4\n哈希已写入该用户目录。")
-                             .arg(displayNameForUser(name), userUid(name), modeDisplayName(modeId.toUtf8().constData()), key));
-    });
+        const QString uidText = userUid(usernameText);
+        const QString info = QString("已为 %1（UID：%2）发放 %3。\nCD Key：%4\n授权文件已写入该用户目录。")
+                                 .arg(displayNameForUser(usernameText),
+                                      uidText,
+                                      modeDisplayName(modeId.toUtf8().constData()),
+                                      key);
+        QApplication::clipboard()->setText(key);
+        message->setText(info);
+        QMessageBox::information(this, "CD Key 已生成", info + "\n\nCD Key 已自动复制到剪贴板。");
+        showIssueDlcKey(); });
     showDetailPage("发放 DLC CD Key", content, &MainWindow::showAdminDashboard);
 }
 
@@ -1834,7 +1927,8 @@ void MainWindow::showSystemSettings()
     auto *renameHours = new QSpinBox;
     renameHours->setRange(1, 720);
     renameHours->setValue(system.value("usernameChangeCooldownHours",
-                                       USERNAME_CHANGE_COOLDOWN_HOURS).toInt());
+                                       USERNAME_CHANGE_COOLDOWN_HOURS)
+                              .toInt());
     auto *autoSave = new QSpinBox;
     autoSave->setRange(0, 1000);
     autoSave->setValue(system.value("defaultAutoSaveInterval", 50).toInt());
@@ -1845,14 +1939,13 @@ void MainWindow::showSystemSettings()
     layout->addWidget(save);
     layout->addStretch();
     connect(save, &QPushButton::clicked, content, [=]
-    {
+            {
         QSettings settings(systemSettingsPath(), QSettings::IniFormat);
         settings.setValue("usernameChangeCooldownHours", renameHours->value());
         settings.setValue("defaultAutoSaveInterval", autoSave->value());
         settings.sync();
         QMessageBox::information(this, "系统设置", "系统设置已保存。");
-        showAdminDashboard();
-    });
+        showAdminDashboard(); });
     showDetailPage("系统设置", content, &MainWindow::showAdminDashboard);
 }
 
@@ -1860,7 +1953,9 @@ int MainWindow::usernameCooldownSeconds() const
 {
     QSettings system(systemSettingsPath(), QSettings::IniFormat);
     return system.value("usernameChangeCooldownHours",
-                        USERNAME_CHANGE_COOLDOWN_HOURS).toInt() * 3600;
+                        USERNAME_CHANGE_COOLDOWN_HOURS)
+               .toInt() *
+           3600;
 }
 
 int MainWindow::defaultAutoSaveInterval() const
@@ -2118,6 +2213,24 @@ QString MainWindow::userUid(const QString &username) const
     return accounts.value("users/" + username).toString();
 }
 
+QString MainWindow::usernameForUid(const QString &uid) const
+{
+    if (uid.isEmpty())
+        return QString();
+    QSettings accounts(QString::fromUtf8(GAME_DATA_DIRECTORY) + "/accounts.ini",
+                       QSettings::IniFormat);
+    accounts.beginGroup("users");
+    const QStringList usernames = accounts.childKeys();
+    for (const QString &username : usernames)
+        if (accounts.value(username).toString() == uid)
+        {
+            accounts.endGroup();
+            return username;
+        }
+    accounts.endGroup();
+    return QString();
+}
+
 QString MainWindow::ensureUserUid(const QString &username) const
 {
     if (username.isEmpty() || username == "游客" || username == "Administrator")
@@ -2267,28 +2380,61 @@ QStringList MainWindow::enabledModeIds() const
 
 QStringList MainWindow::authorizedDlcIds() const
 {
-    if (guestMode || currentUser.isEmpty() || currentUser == "Administrator")
+    if (guestMode || currentUser.isEmpty())
         return {};
-    QSettings keys(userDirectoryPath() + "/dlc_keys.ini", QSettings::IniFormat);
-    QStringList result = keys.value("authorized/list").toStringList();
+    QStringList result;
+    const QDir dir(dlcDirectoryPath(userUid(currentUser)));
+    const QFileInfoList files = dir.entryInfoList(QStringList() << "*.DLC", QDir::Files, QDir::Time);
+    for (const QFileInfo &fileInfo : files)
+    {
+        QSettings auth(fileInfo.absoluteFilePath(), QSettings::IniFormat);
+        if (auth.value("status").toString() == "activated")
+            result.append(auth.value("dlc_id").toString());
+    }
     result.removeDuplicates();
     return result;
 }
 
-bool MainWindow::isDlcAuthorized(const QString &modeId) const
+QStringList MainWindow::activatedDlcIds() const
 {
-    return modeId == "classic" || authorizedDlcIds().contains(modeId);
+    return authorizedDlcIds();
 }
 
-QString MainWindow::dlcKeyHash(const QString &key) const
+bool MainWindow::isDlcAuthorized(const QString &modeId) const
 {
-    const QByteArray text = QString("2048GameDLC:%1").arg(key).toUtf8();
+    return modeId == "classic" || activatedDlcIds().contains(modeId);
+}
+
+bool MainWindow::isDlcActivated(const QString &modeId) const
+{
+    return modeId == "classic" || activatedDlcIds().contains(modeId);
+}
+
+QString MainWindow::dlcDirectoryPath(const QString &uid) const
+{
+    return QString::fromUtf8(GAME_DATA_DIRECTORY) + "/Users/" + uid + "/DLC";
+}
+
+QString MainWindow::dlcFilePath(const QString &uid, const QString &modeId) const
+{
+    return dlcDirectoryPath(uid) + "/" + modeId + ".DLC";
+}
+
+QString MainWindow::dlcIssuedListPath() const
+{
+    return QString::fromUtf8(GAME_DATA_DIRECTORY) + "/DLC/issued_keys.json";
+}
+
+QString MainWindow::dlcKeyHash(const QString &dlcName, const QString &uid, const QString &key) const
+{
+    const QString salt = dlcName + uid;
+    const QByteArray text = QString("%1:%2").arg(salt, key).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex());
 }
 
 QString MainWindow::generateDlcKey(const QString &uid, const QString &modeId) const
 {
-    const QByteArray seed = QString("%1:%2:2048GameDLC").arg(uid, modeId).toUtf8();
+    const QByteArray seed = QString("%1:%2:%3").arg(uid, modeId, QString::number(QDateTime::currentMSecsSinceEpoch())).toUtf8();
     return QString::fromLatin1(QCryptographicHash::hash(seed, QCryptographicHash::Sha256)
                                    .toHex()
                                    .left(16))
@@ -2297,25 +2443,95 @@ QString MainWindow::generateDlcKey(const QString &uid, const QString &modeId) co
 
 bool MainWindow::grantDlcKey(const QString &username, const QString &modeId, QString *plainKey) const
 {
-    if (!auth_user_exists(USER_DATA_FILE, username.toUtf8().constData()) ||
+    const QString resolvedUsername = username.trimmed();
+    if (resolvedUsername.isEmpty() ||
+        !auth_user_exists(USER_DATA_FILE, resolvedUsername.toUtf8().constData()) ||
         game_mode_find(modeId.toUtf8().constData()) == nullptr ||
         modeId == "classic")
         return false;
-    const QString uid = ensureUserUid(username);
+    const QString uid = userUid(resolvedUsername);
+    if (uid.isEmpty())
+        return false;
+    if (accountStatus(resolvedUsername) == "deleted")
+        return false;
     const QString key = generateDlcKey(uid, modeId);
-    QSettings keys(userDirectoryForUsername(username) + "/dlc_keys.ini", QSettings::IniFormat);
-    keys.setValue("issued/" + modeId, dlcKeyHash(key));
-    keys.setValue("meta/uid", uid);
-    keys.sync();
-    const QString keyDirectory = modDirectoryPath() + "/CDKeys";
-    QDir().mkpath(keyDirectory);
-    QSettings registry(keyDirectory + "/" + uid + "_" + modeId + ".ini", QSettings::IniFormat);
+    const QString filePath = dlcFilePath(uid, modeId);
+    QDir().mkpath(dlcDirectoryPath(uid));
+    QSettings registry(filePath, QSettings::IniFormat);
+    registry.setValue("dlc_id", modeId);
+    registry.setValue("dlc_name", modeDisplayName(modeId.toUtf8().constData()));
     registry.setValue("uid", uid);
-    registry.setValue("mode", modeId);
-    registry.setValue("keyHash", dlcKeyHash(key));
+    registry.setValue("key_hash", dlcKeyHash(modeDisplayName(modeId.toUtf8().constData()), uid, key));
+    registry.setValue("status", "issued");
+    registry.setValue("issued_at", QDateTime::currentSecsSinceEpoch());
     registry.sync();
+    QJsonArray list;
+    QFile listFile(dlcIssuedListPath());
+    if (listFile.open(QIODevice::ReadOnly))
+    {
+        const QJsonDocument doc = QJsonDocument::fromJson(listFile.readAll());
+        list = doc.array();
+        listFile.close();
+    }
+    QJsonObject item;
+    item["dlc_id"] = modeId;
+    item["dlc_name"] = modeDisplayName(modeId.toUtf8().constData());
+    item["uid"] = uid;
+    item["plain_key"] = key;
+    item["status"] = "issued";
+    item["issued_at"] = QDateTime::currentSecsSinceEpoch();
+    list.append(item);
+    QDir().mkpath(QFileInfo(dlcIssuedListPath()).absolutePath());
+    QFile out(dlcIssuedListPath());
+    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        out.write(QJsonDocument(list).toJson(QJsonDocument::Compact));
     if (plainKey != nullptr)
         *plainKey = key;
+    return true;
+}
+
+bool MainWindow::activateDlcKey(const QString &uid, const QString &modeId, const QString &dlcName, const QString &plainKey) const
+{
+    if (uid.isEmpty() || modeId.isEmpty() || plainKey.isEmpty())
+        return false;
+    QSettings registry(dlcFilePath(uid, modeId), QSettings::IniFormat);
+    if (registry.value("uid").toString() != uid ||
+        registry.value("dlc_id").toString() != modeId ||
+        registry.value("dlc_name").toString() != dlcName)
+        return false;
+    if (registry.value("key_hash").toString() != dlcKeyHash(dlcName, uid, plainKey))
+        return false;
+    registry.setValue("status", "activated");
+    registry.sync();
+    QFile listFile(dlcIssuedListPath());
+    if (listFile.open(QIODevice::ReadOnly))
+    {
+        QJsonArray list = QJsonDocument::fromJson(listFile.readAll()).array();
+        listFile.close();
+        bool changed = false;
+        for (int index = 0; index < list.size(); ++index)
+        {
+            if (!list[index].isObject())
+                continue;
+            QJsonObject item = list[index].toObject();
+            if (item.value("uid").toString() == uid &&
+                item.value("dlc_id").toString() == modeId &&
+                item.value("plain_key").toString() == plainKey)
+            {
+                item["status"] = "activated";
+                item["activated_at"] = QDateTime::currentSecsSinceEpoch();
+                list[index] = item;
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            QDir().mkpath(QFileInfo(dlcIssuedListPath()).absolutePath());
+            QFile out(dlcIssuedListPath());
+            if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                out.write(QJsonDocument(list).toJson(QJsonDocument::Compact));
+        }
+    }
     return true;
 }
 
@@ -2384,7 +2600,6 @@ QString MainWindow::authMessage(int result) const
         return {};
     }
 }
-
 
 bool MainWindow::isSuperAdminUser(const QString &username) const
 {
