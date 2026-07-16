@@ -1,0 +1,7 @@
+{
+  "type": "mode",
+  "id": "custom_board",
+  "name": "自定义棋盘模式",
+  "boardSize": 0,
+  "rankingEnabled": true
+}

@@ -18,6 +18,7 @@ static void game_mode_initialize(void)
     classic.target_tile = BOARD_TARGET;
     classic.step_limit = 0;
     classic.time_limit_seconds = 0;
+    classic.board_size = BOARD_DEFAULT_SIZE;
     classic.ranking_enabled = true;
     classic.start = board_start;
     classic.process = board_process;
@@ -29,14 +30,21 @@ bool game_mode_register(const GameModeDefinition *definition)
 {
     int index;
     game_mode_initialize();
-    if (definition == NULL || definition->id[0] == '\0' ||
-        mode_count >= GAME_MODE_MAX_COUNT)
+    if (definition == NULL || definition->id[0] == '\0')
         return false;
     for (index = 0; index < mode_count; index = -~index)
     {
         if (utils_string_equal(modes[index].id, definition->id))
-            return false;
+        {
+            /* DLC files may be rescanned while the program is running. */
+            if (utils_string_equal(definition->id, "classic"))
+                return false;
+            modes[index] = *definition;
+            return true;
+        }
     }
+    if (mode_count >= GAME_MODE_MAX_COUNT)
+        return false;
     modes[mode_count++] = *definition;
     return true;
 }
@@ -70,10 +78,18 @@ const GameModeDefinition *game_mode_at(int index)
 bool game_mode_start(const char *id, Board *board)
 {
     const GameModeDefinition *mode = game_mode_find(id);
+    int requested_size;
     if (mode == NULL || board == NULL)
         return false;
+    requested_size = mode->board_size == 0 ? board->rows : mode->board_size;
+    if (requested_size < BOARD_MIN_SIZE || requested_size > BOARD_MAX_SIZE)
+        requested_size = BOARD_DEFAULT_SIZE;
+    board_set_size(board, requested_size, requested_size);
     (mode->start == NULL ? board_start : mode->start)(board);
     utils_copy_string(board->mode, mode->id, sizeof(board->mode));
+    board->target_tile = mode->target_tile > 0 ? mode->target_tile : BOARD_TARGET;
+    board->step_limit = mode->step_limit;
+    board->time_limit_seconds = mode->time_limit_seconds;
     return true;
 }
 
@@ -92,11 +108,11 @@ BoardStatus game_mode_judge(const char *id, const Board *board)
     if (mode == NULL || board == NULL)
         return BOARD_STATUS_WAIT;
     status = (mode->judge == NULL ? board_judge : mode->judge)(board);
-    if (status == BOARD_STATUS_PROCESS && mode->step_limit > 0 &&
-        board->step >= mode->step_limit)
+    if (status == BOARD_STATUS_PROCESS && board->step_limit > 0 &&
+        board->step >= board->step_limit)
         return BOARD_STATUS_LOSE;
-    if (status == BOARD_STATUS_PROCESS && mode->time_limit_seconds > 0 &&
-        board->elapsed_seconds >= mode->time_limit_seconds)
+    if (status == BOARD_STATUS_PROCESS && board->time_limit_seconds > 0 &&
+        board->elapsed_seconds >= board->time_limit_seconds)
         return BOARD_STATUS_LOSE;
     return status;
 }

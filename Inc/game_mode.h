@@ -14,6 +14,7 @@ typedef struct GameModeDefinition
     int target_tile;
     int step_limit;
     int time_limit_seconds;
+    int board_size;
     bool ranking_enabled;
     GameModeStartHandler start;
     GameModeProcessHandler process;

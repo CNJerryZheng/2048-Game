@@ -1,0 +1,7 @@
+{
+  "type": "mode",
+  "id": "step_500",
+  "name": "计步模式",
+  "stepLimit": 500,
+  "rankingEnabled": true
+}

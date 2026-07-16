@@ -8,13 +8,13 @@
 
 static bool random_seed_initialized = false;
 
-static void board_merge_line(int line[BOARD_COLS], int *score)
+static void board_merge_line(int line[BOARD_MAX_SIZE], int length, int *score)
 {
-    int compacted[BOARD_COLS] = {0};
+    int compacted[BOARD_MAX_SIZE] = {0};
     int write_index = 0;
     int read_index;
 
-    for (read_index = 0; read_index < BOARD_COLS; read_index = -~read_index)
+    for (read_index = 0; read_index < length; read_index = -~read_index)
     {
         if (line[read_index] != 0)
             compacted[write_index++] = line[read_index];
@@ -33,41 +33,44 @@ static void board_merge_line(int line[BOARD_COLS], int *score)
         }
     }
 
-    memcpy(line, compacted, sizeof(compacted));
+    memcpy(line, compacted, (size_t)length * sizeof(compacted[0]));
 }
 
 static void board_move(Board *board, BoardCommand command)
 {
-    int line[BOARD_COLS];
+    int line[BOARD_MAX_SIZE];
     int outer;
     int inner;
+    const bool horizontal = command == BOARD_CMD_LEFT || command == BOARD_CMD_RIGHT;
+    const int outer_count = horizontal ? board->rows : board->cols;
+    const int line_length = horizontal ? board->cols : board->rows;
 
-    for (outer = 0; outer < BOARD_ROWS; outer = -~outer)
+    for (outer = 0; outer < outer_count; outer = -~outer)
     {
-        for (inner = 0; inner < BOARD_COLS; inner = -~inner)
+        for (inner = 0; inner < line_length; inner = -~inner)
         {
             if (command == BOARD_CMD_LEFT)
                 line[inner] = board->grid[outer][inner];
             else if (command == BOARD_CMD_RIGHT)
-                line[inner] = board->grid[outer][BOARD_COLS - 1 - inner];
+                line[inner] = board->grid[outer][board->cols - 1 - inner];
             else if (command == BOARD_CMD_UP)
                 line[inner] = board->grid[inner][outer];
             else
-                line[inner] = board->grid[BOARD_ROWS - 1 - inner][outer];
+                line[inner] = board->grid[board->rows - 1 - inner][outer];
         }
 
-        board_merge_line(line, &board->score);
+        board_merge_line(line, line_length, &board->score);
 
-        for (inner = 0; inner < BOARD_COLS; inner = -~inner)
+        for (inner = 0; inner < line_length; inner = -~inner)
         {
             if (command == BOARD_CMD_LEFT)
                 board->grid[outer][inner] = line[inner];
             else if (command == BOARD_CMD_RIGHT)
-                board->grid[outer][BOARD_COLS - 1 - inner] = line[inner];
+                board->grid[outer][board->cols - 1 - inner] = line[inner];
             else if (command == BOARD_CMD_UP)
                 board->grid[inner][outer] = line[inner];
             else
-                board->grid[BOARD_ROWS - 1 - inner][outer] = line[inner];
+                board->grid[board->rows - 1 - inner][outer] = line[inner];
         }
     }
 }
@@ -75,7 +78,22 @@ static void board_move(Board *board, BoardCommand command)
 void board_init(Board *board)
 {
     if (board != NULL)
+    {
         memset(board, 0, sizeof(*board));
+        board->rows = BOARD_DEFAULT_SIZE;
+        board->cols = BOARD_DEFAULT_SIZE;
+        board->target_tile = BOARD_TARGET;
+    }
+}
+
+void board_set_size(Board *board, int rows, int cols)
+{
+    if (board == NULL)
+        return;
+    board->rows = rows < BOARD_MIN_SIZE ? BOARD_MIN_SIZE :
+                  (rows > BOARD_MAX_SIZE ? BOARD_MAX_SIZE : rows);
+    board->cols = cols < BOARD_MIN_SIZE ? BOARD_MIN_SIZE :
+                  (cols > BOARD_MAX_SIZE ? BOARD_MAX_SIZE : cols);
 }
 
 void board_start(Board *board)
@@ -89,7 +107,14 @@ void board_start(Board *board)
         random_seed_initialized = true;
     }
 
-    board_init(board);
+    {
+        const int rows = board->rows >= BOARD_MIN_SIZE && board->rows <= BOARD_MAX_SIZE
+                             ? board->rows : BOARD_DEFAULT_SIZE;
+        const int cols = board->cols >= BOARD_MIN_SIZE && board->cols <= BOARD_MAX_SIZE
+                             ? board->cols : BOARD_DEFAULT_SIZE;
+        board_init(board);
+        board_set_size(board, rows, cols);
+    }
     utils_copy_string(board->mode, "classic", sizeof(board->mode));
     (void)board_create_number(board);
     (void)board_create_number(board);
@@ -98,8 +123,8 @@ void board_start(Board *board)
 
 bool board_create_number(Board *board)
 {
-    int empty_rows[BOARD_ROWS * BOARD_COLS];
-    int empty_cols[BOARD_ROWS * BOARD_COLS];
+    int empty_rows[BOARD_MAX_SIZE * BOARD_MAX_SIZE];
+    int empty_cols[BOARD_MAX_SIZE * BOARD_MAX_SIZE];
     int empty_count = 0;
     int row;
     int col;
@@ -108,9 +133,9 @@ bool board_create_number(Board *board)
     if (board == NULL)
         return false;
 
-    for (row = 0; row < BOARD_ROWS; row = -~row)
+    for (row = 0; row < board->rows; row = -~row)
     {
-        for (col = 0; col < BOARD_COLS; col = -~col)
+        for (col = 0; col < board->cols; col = -~col)
         {
             if (board->grid[row][col] == 0)
             {
@@ -158,32 +183,33 @@ BoardStatus board_judge(const Board *board)
     if (board == NULL)
         return BOARD_STATUS_WAIT;
 
-    for (row = 0; row < BOARD_ROWS; row = -~row)
+    for (row = 0; row < board->rows; row = -~row)
     {
-        for (col = 0; col < BOARD_COLS; col = -~col)
+        for (col = 0; col < board->cols; col = -~col)
         {
-            if (board->grid[row][col] >= BOARD_TARGET)
+            if (board->grid[row][col] >=
+                (board->target_tile > 0 ? board->target_tile : BOARD_TARGET))
                 return BOARD_STATUS_WIN;
         }
     }
 
-    for (row = 0; row < BOARD_ROWS; row = -~row)
+    for (row = 0; row < board->rows; row = -~row)
     {
-        for (col = 0; col < BOARD_COLS; col = -~col)
+        for (col = 0; col < board->cols; col = -~col)
         {
             if (board->grid[row][col] == 0)
                 return BOARD_STATUS_PROCESS;
         }
     }
 
-    for (row = 0; row < BOARD_ROWS; row = -~row)
+    for (row = 0; row < board->rows; row = -~row)
     {
-        for (col = 0; col < BOARD_COLS; col = -~col)
+        for (col = 0; col < board->cols; col = -~col)
         {
-            if (col + 1 < BOARD_COLS &&
+            if (col + 1 < board->cols &&
                 board->grid[row][col] == board->grid[row][col + 1])
                 return BOARD_STATUS_PROCESS;
-            if (row + 1 < BOARD_ROWS &&
+            if (row + 1 < board->rows &&
                 board->grid[row][col] == board->grid[row + 1][col])
                 return BOARD_STATUS_PROCESS;
         }
@@ -194,8 +220,8 @@ BoardStatus board_judge(const Board *board)
 
 int board_get_data(const Board *board, int row, int col)
 {
-    if (board == NULL || row < 0 || row >= BOARD_ROWS ||
-        col < 0 || col >= BOARD_COLS)
+    if (board == NULL || row < 0 || row >= board->rows ||
+        col < 0 || col >= board->cols)
         return -1;
 
     return board->grid[row][col];
@@ -230,9 +256,9 @@ int board_get_max_tile(const Board *board)
     if (board == NULL)
         return 0;
 
-    for (row = 0; row < BOARD_ROWS; row = -~row)
+    for (row = 0; row < board->rows; row = -~row)
     {
-        for (col = 0; col < BOARD_COLS; col = -~col)
+        for (col = 0; col < board->cols; col = -~col)
         {
             if (board->grid[row][col] > maximum)
                 maximum = board->grid[row][col];

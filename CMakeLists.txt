@@ -51,6 +51,14 @@ set_target_properties(2048_game_qt PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+add_custom_command(TARGET 2048_game_qt POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:2048_game_qt>/Data/DLC"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/DLC"
+            "$<TARGET_FILE_DIR:2048_game_qt>/Data/DLC"
+)
+
 include(GNUInstallDirs)
 install(TARGETS 2048_game_qt
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

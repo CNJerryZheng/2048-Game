@@ -27,6 +27,11 @@ CMakeLists.txt.user*
 *.dll
 *.pdb
 *.ilk
+*.log
+*.tmp
+
+# Accidental root-level archives/backups
+/*.zip
 
 /Data/*.dat
 /Data/*.tmp

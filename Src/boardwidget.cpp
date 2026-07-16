@@ -93,9 +93,9 @@ QPoint BoardWidget::linePosition(BoardCommand command,
 {
     switch (command) {
     case BOARD_CMD_LEFT: return {inner, outer};
-    case BOARD_CMD_RIGHT: return {BOARD_COLS - 1 - inner, outer};
+    case BOARD_CMD_RIGHT: return {displayedBoard.cols - 1 - inner, outer};
     case BOARD_CMD_UP: return {outer, inner};
-    case BOARD_CMD_DOWN: return {outer, BOARD_ROWS - 1 - inner};
+    case BOARD_CMD_DOWN: return {outer, displayedBoard.rows - 1 - inner};
     }
     return {};
 }
@@ -109,9 +109,12 @@ void BoardWidget::buildTrace(const Board &previous,
     mergedTiles.clear();
     newTile = {-1, -1};
 
-    for (int outer = 0; outer < BOARD_ROWS; ++outer) {
+    const bool horizontal = command == BOARD_CMD_LEFT || command == BOARD_CMD_RIGHT;
+    const int outerCount = horizontal ? previous.rows : previous.cols;
+    const int lineLength = horizontal ? previous.cols : previous.rows;
+    for (int outer = 0; outer < outerCount; ++outer) {
         QVector<QPair<QPoint, int>> sourceTiles;
-        for (int inner = 0; inner < BOARD_COLS; ++inner) {
+        for (int inner = 0; inner < lineLength; ++inner) {
             const QPoint position = linePosition(command, outer, inner);
             const int value = previous.grid[position.y()][position.x()];
             if (value != 0)
@@ -139,8 +142,8 @@ void BoardWidget::buildTrace(const Board &previous,
         }
     }
 
-    for (int row = 0; row < BOARD_ROWS; ++row) {
-        for (int column = 0; column < BOARD_COLS; ++column) {
+    for (int row = 0; row < current.rows; ++row) {
+        for (int column = 0; column < current.cols; ++column) {
             if (movedGrid[row][column] == 0 && current.grid[row][column] != 0) {
                 newTile = {column, row};
                 return;
@@ -156,7 +159,11 @@ QRectF BoardWidget::cellRect(const QPoint &position) const
     const qreal boardSize = qMin(width(), height());
     const qreal left = (width() - boardSize) / 2.0;
     const qreal top = (height() - boardSize) / 2.0;
-    const qreal cellSize = (boardSize - padding * 2.0 - spacing * 3.0) / 4.0;
+    const int columns = qBound(BOARD_MIN_SIZE, displayedBoard.cols, BOARD_MAX_SIZE);
+    const int rows = qBound(BOARD_MIN_SIZE, displayedBoard.rows, BOARD_MAX_SIZE);
+    const int longestSide = qMax(columns, rows);
+    const qreal cellSize = (boardSize - padding * 2.0 - spacing * (longestSide - 1)) /
+                           longestSide;
     return {left + padding + position.x() * (cellSize + spacing),
             top + padding + position.y() * (cellSize + spacing),
             cellSize, cellSize};
@@ -172,7 +179,9 @@ void BoardWidget::drawTile(QPainter &painter,
     if (value == 0)
         return;
 
-    painter.setFont(Theme::tileFont(value, painter.font()));
+    QFont font = Theme::tileFont(value, painter.font());
+    font.setPixelSize(qMin(font.pixelSize(), qMax(12, qRound(rect.height() * 0.32))));
+    painter.setFont(font);
     painter.setPen(Theme::tileForeground(value));
     painter.drawText(rect, Qt::AlignCenter, QString::number(value));
 }
@@ -191,8 +200,8 @@ void BoardWidget::paintEvent(QPaintEvent *event)
     painter.setBrush(QColor("#bbada0"));
     painter.drawRoundedRect(background, 10.0, 10.0);
 
-    for (int row = 0; row < BOARD_ROWS; ++row) {
-        for (int column = 0; column < BOARD_COLS; ++column)
+    for (int row = 0; row < displayedBoard.rows; ++row) {
+        for (int column = 0; column < displayedBoard.cols; ++column)
             drawTile(painter, cellRect({column, row}), 0);
     }
 
@@ -209,8 +218,8 @@ void BoardWidget::paintEvent(QPaintEvent *event)
         return;
     }
 
-    for (int row = 0; row < BOARD_ROWS; ++row) {
-        for (int column = 0; column < BOARD_COLS; ++column) {
+    for (int row = 0; row < displayedBoard.rows; ++row) {
+        for (int column = 0; column < displayedBoard.cols; ++column) {
             const int value = displayedBoard.grid[row][column];
             if (value == 0)
                 continue;

@@ -50,7 +50,7 @@
             }
         },
         {
-            "label": "2048 Qt: 生成测试用户数据",
+            "label": "2048 Qt: 清空并重建全部测试数据",
             "type": "process",
             "command": "powershell.exe",
             "args": [

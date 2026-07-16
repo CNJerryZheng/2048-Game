@@ -1,0 +1,7 @@
+{
+  "type": "mode",
+  "id": "timed_300",
+  "name": "限时模式",
+  "timeLimitSeconds": 300,
+  "rankingEnabled": true
+}

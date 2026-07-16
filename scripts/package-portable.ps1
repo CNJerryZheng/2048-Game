@@ -37,6 +37,7 @@ if (Test-Path -LiteralPath $PackageDirectory) {
 New-Item -ItemType Directory -Path (Join-Path $PackageDirectory "Data\DLC") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $BuildDirectory "bin\2048_game_qt.exe") -Destination $PackageDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $PackageDirectory
+Copy-Item -Path (Join-Path $ProjectRoot "DLC\*.json") -Destination (Join-Path $PackageDirectory "Data\DLC") -Force
 
 $DeployCommand = 'call "{0}" -arch=x64 -host_arch=x64 >nul && "{1}" --release --compiler-runtime --no-translations "{2}"' -f `
     $VisualStudioTools, $DeployQt, (Join-Path $PackageDirectory "2048_game_qt.exe")

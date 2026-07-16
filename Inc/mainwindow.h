@@ -87,6 +87,7 @@ private:
     QString settingsFilePath() const;
     QString userDirectoryPath() const;
     QString userDirectoryForUsername(const QString &username) const;
+    QString resolveExistingUsername(const QString &username) const;
     QString userUid(const QString &username) const;
     QString usernameForUid(const QString &uid) const;
     QString ensureUserUid(const QString &username) const;
@@ -97,6 +98,7 @@ private:
     QString historyFilePath() const;
     QString profileFilePath() const;
     QString modDirectoryPath() const;
+    void reloadDlcCatalog();
     QString systemSettingsPath() const;
     void migrateLegacyUserData();
     QStringList enabledModeIds() const;
@@ -111,6 +113,8 @@ private:
     QString generateDlcKey(const QString &uid, const QString &modeId) const;
     bool grantDlcKey(const QString &username, const QString &modeId, QString *plainKey = nullptr) const;
     bool activateDlcKey(const QString &uid, const QString &modeId, const QString &dlcName, const QString &plainKey) const;
+    void startBoardForMode(const QString &modeId);
+    void restoreLoadedBoardRules(Board *target) const;
     QString selectedModeId() const;
     void cycleGameMode();
     void updateModeButton();

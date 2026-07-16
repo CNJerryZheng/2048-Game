@@ -3,8 +3,11 @@
 #include <stdbool.h>
 #include "config.h"
 
-#define BOARD_ROWS 4
-#define BOARD_COLS 4
+#define BOARD_MIN_SIZE 3
+#define BOARD_DEFAULT_SIZE 4
+#define BOARD_MAX_SIZE 6
+#define BOARD_ROWS BOARD_MAX_SIZE
+#define BOARD_COLS BOARD_MAX_SIZE
 #define BOARD_TARGET 2048
 
 typedef enum BoardCommand
@@ -28,9 +31,14 @@ typedef struct Board
     bool game_start;
     bool game_over;
     int grid[BOARD_ROWS][BOARD_COLS];
+    int rows;
+    int cols;
     int score;
     int step;
     int elapsed_seconds;
+    int target_tile;
+    int step_limit;
+    int time_limit_seconds;
     char mode[GAME_MODE_ID_LENGTH];
 } Board;
 
@@ -40,6 +48,7 @@ extern "C" {
 
 void board_init(Board *board);
 void board_start(Board *board);
+void board_set_size(Board *board, int rows, int cols);
 bool board_create_number(Board *board);
 bool board_process(Board *board, BoardCommand command);
 BoardStatus board_judge(const Board *board);
